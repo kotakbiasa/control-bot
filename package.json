@@ -1,0 +1,22 @@
+{
+  "name": "telegram-deploy-control-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot untuk deploy dan kontrol banyak app/process di server tanpa login VPS manual.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js && node --check src/db.js && node --check src/deployer.js && node --check src/processManager.js && node --check src/utils.js"
+  },
+  "keywords": [
+    "telegram",
+    "deploy",
+    "process-manager",
+    "json-db"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "telegraf": "^4.16.3"
+  }
+}

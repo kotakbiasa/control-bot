@@ -1,0 +1,6 @@
+node_modules
+.env
+.npm-cache
+data/db.json
+deployments
+logs
