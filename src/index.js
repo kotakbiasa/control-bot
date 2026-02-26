@@ -254,6 +254,7 @@ async function buildVpsInfoText() {
     `<b>OS:</b> ${escapeHtml(`${os.platform()} ${os.release()} (${os.arch()})`)}`,
     `<b>Node:</b> ${escapeHtml(process.version)}`,
     `<b>Uptime:</b> ${escapeHtml(formatUptime(os.uptime()))}`,
+    `<b>Bot Uptime:</b> ${escapeHtml(formatUptime(process.uptime()))}`,
     "</blockquote>",
     "",
     `<b>⚙️ CPU</b>`,
@@ -400,9 +401,12 @@ function panelText(state) {
       `<b>cmd start:</b> <pre>${escapeHtml(selectedApp.startCommand || "npm start")}</pre>`,
       "</blockquote>"
     );
+  } else if (view === "vps") {
+    lines.push(state.output);
   }
 
-  if (synced.output && synced.output.trim()) {
+  // Only show generic output if NOT in vps view
+  if (view !== "vps" && synced.output && synced.output.trim()) {
     lines.push("", "💬 <b>Output Terakhir</b>");
     if (synced.outputIsHtml) {
       lines.push(synced.output);
@@ -433,7 +437,7 @@ function panelKeyboard(state) {
     rows.push([
       { text: "🔄 Refresh", callback_data: "panel:refresh" },
       { text: "🖥️ VPS Info", callback_data: "panel:vps" },
-      { text: "➕ Add App", callback_data: "panel:addapp:start" }
+      { text: "🆕 Add App", callback_data: "panel:addapp:start" }
     ]);
 
     for (let i = 0; i < names.length; i += 2) {
@@ -452,18 +456,23 @@ function panelKeyboard(state) {
       { text: "🤖 Update Bot", callback_data: "panel:bot:update" },
       { text: "⚡ Restart Bot", callback_data: "panel:bot:restart" }
     ]);
+  } else if (view === "vps") {
+    rows.push([
+      { text: "🔄 Refresh VPS", callback_data: "panel:vps" },
+      { text: "🔙 Kembali", callback_data: "panel:nav:main" }
+    ]);
   } else if (view === "app" && synced.selectedApp) {
     if (synced.confirmRemove) {
       rows.push([
         { text: "⚠️ Hapus DB Saja", callback_data: "panel:run:rmkeep" },
         { text: "⚠️ Hapus DB & File", callback_data: "panel:run:rmfiles" }
       ]);
-      rows.push([{ text: "Batal Hapus ✖️", callback_data: "panel:run:rmcancel" }]);
+      rows.push([{ text: "✖️ Batal Hapus", callback_data: "panel:run:rmcancel" }]);
     } else {
       rows.push([
-        { text: "🟢 Start", callback_data: "panel:run:start" },
-        { text: "🔴 Stop", callback_data: "panel:run:stop" },
-        { text: "🔄 Restart", callback_data: "panel:run:restart" }
+        { text: "▶️ Start", callback_data: "panel:run:start" },
+        { text: "⏹️ Stop", callback_data: "panel:run:stop" },
+        { text: "🔁 Restart", callback_data: "panel:run:restart" }
       ]);
       rows.push([
         { text: "🚀 Deploy", callback_data: "panel:run:deploy" },
@@ -1440,6 +1449,7 @@ bot.action("panel:vps", async (ctx) => {
   await answerCallback(ctx, "Loading VPS info...");
   const info = await buildVpsInfoText();
   await renderPanel(ctx, {
+    view: "vps",
     output: info,
     outputIsHtml: true,
     confirmRemove: false
