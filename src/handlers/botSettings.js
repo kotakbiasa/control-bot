@@ -228,6 +228,28 @@ function register(bot, deps) {
         await renderPanel(ctx, {}, deps);
     });
 
+    // === Audit Log ===
+    bot.action("panel:bot:auditlog", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        const { auditLog } = deps;
+        const recent = auditLog.getRecent(25);
+        let output;
+        if (recent.length === 0) {
+            output = "📝 <b>Audit Log</b>\n\n<i>Belum ada log.</i>";
+        } else {
+            output = "📝 <b>Audit Log (25 terakhir)</b>\n\n<pre>" + escapeHtml(recent.join("\n")) + "</pre>";
+        }
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
+    // === Restore trigger ===
+    bot.action("panel:bot:restore", async (ctx) => {
+        await answerCallback(ctx);
+        await ctx.reply("📦 <b>Restore Backup</b>\n\nKirim file <code>.zip</code> backup ke chat ini untuk memulai proses restore.\n\nFile backup yang valid berisi: db.json, .env, dan/atau app-specific .env files.", { parse_mode: "HTML" });
+    });
+
     bot.action("panel:bot:update", async (ctx) => {
         await answerCallback(ctx, "Updating bot...");
         try {

@@ -169,6 +169,10 @@ function panelKeyboard(state, deps) {
             { text: "📋 Report Sekarang", callback_data: "panel:bot:report" }
         ]);
         rows.push([
+            { text: "📝 Audit Log", callback_data: "panel:bot:auditlog" },
+            { text: "📦 Restore Backup", callback_data: "panel:bot:restore" }
+        ]);
+        rows.push([
             { text: "🤖 Update Bot", callback_data: "panel:bot:update" },
             { text: "⚡ Restart Bot", callback_data: "panel:bot:restart" }
         ]);

@@ -8,6 +8,7 @@ const { Deployer } = require("./deployer");
 const { ProcessManager } = require("./processManager");
 const { Monitor } = require("./services/monitor");
 const { WebhookServer } = require("./services/webhook");
+const { AuditLog } = require("./services/auditLog");
 const { ensureDir, escapeHtml, withinDir } = require("./utils");
 
 // --- Directories ---
@@ -101,8 +102,9 @@ processManager.on("crash", async (appName) => {
 const monitor = new Monitor({ db, bot, ADMIN_IDS });
 
 // --- Shared deps for all handlers ---
+const auditLog = new AuditLog({ DATA_DIR });
 const deps = {
-  db, bot, processManager, deployer, monitor,
+  db, bot, processManager, deployer, monitor, auditLog,
   ADMIN_IDS, ROOT_DIR, DATA_DIR, DB_PATH, DEPLOYMENTS_DIR, LOGS_DIR,
   chatInputState, busyApps,
   isAdmin, withAppLock, withinDir
@@ -115,12 +117,24 @@ deps.webhookServer = webhookServer;
 // --- Middleware & Handlers ---
 bot.use(adminOnly);
 
+// Audit middleware — log every command and callback
+bot.use((ctx, next) => {
+  const fromId = ctx.from ? String(ctx.from.id) : "unknown";
+  if (ctx.message && ctx.message.text && ctx.message.text.startsWith("/")) {
+    auditLog.log(fromId, "command", ctx.message.text.split(" ")[0]);
+  } else if (ctx.callbackQuery && ctx.callbackQuery.data) {
+    auditLog.log(fromId, "action", ctx.callbackQuery.data);
+  }
+  return next();
+});
+
 // Register all handlers
 require("./handlers/inputFlow").register(bot, deps);
 require("./handlers/commands").register(bot, deps);
 require("./handlers/panelActions").register(bot, deps);
 require("./handlers/appActions").register(bot, deps);
 require("./handlers/botSettings").register(bot, deps);
+require("./handlers/fileHandler").register(bot, deps);
 
 // --- Error handler ---
 bot.catch(async (err, ctx) => {
