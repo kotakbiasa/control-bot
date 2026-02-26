@@ -433,6 +433,11 @@ function panelKeyboard(state) {
     } else {
       rows.push([{ text: "Remove", callback_data: "panel:run:remove" }]);
     }
+  } else {
+    rows.push([
+      { text: "Update Bot", callback_data: "panel:bot:update" },
+      { text: "Restart Bot", callback_data: "panel:bot:restart" }
+    ]);
   }
 
   rows.push([{ text: "Clear Output", callback_data: "panel:clear" }]);
@@ -1654,6 +1659,43 @@ bot.action(
     }
   }
 );
+
+bot.action("panel:bot:update", async (ctx) => {
+  await answerCallback(ctx, "Updating bot...");
+  try {
+    const pullProcess = await runShell("git pull origin main", { cwd: ROOT_DIR });
+    const installProcess = await runShell("npm install", { cwd: ROOT_DIR });
+
+    const output = [
+      "<b>Bot Update Status</b>",
+      "<u>Git Pull:</u>",
+      `<pre>${escapeHtml(clip(pullProcess.stdout + pullProcess.stderr, 1000))}</pre>`,
+      "<u>NPM Install:</u>",
+      `<pre>${escapeHtml(clip(installProcess.stdout + installProcess.stderr, 1000))}</pre>`,
+      "",
+      "Disarankan menekan <b>Restart Bot</b> setelah update bila ada pembaruan."
+    ].join("\n");
+
+    await renderPanel(ctx, {
+      output,
+      outputIsHtml: true,
+      confirmRemove: false
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await renderPanel(ctx, {
+      output: `Gagal menjalankan update bot: ${escapeHtml(msg)}`,
+      outputIsHtml: true,
+      confirmRemove: false
+    });
+  }
+});
+
+bot.action("panel:bot:restart", async (ctx) => {
+  await answerCallback(ctx, "Restarting bot...");
+  await editOrReply(ctx, "<b>Bot is restarting...</b>\n\nJika anda menggunakan PM2 atau Systemd, bot akan aktif kembali sesaat lagi. Silakan /panel ulang.", { parse_mode: "HTML" });
+  setTimeout(() => process.exit(0), 1000);
+});
 
 bot.catch(async (err, ctx) => {
   const msg = err instanceof Error ? err.stack || err.message : String(err);
