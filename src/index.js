@@ -469,6 +469,9 @@ function panelKeyboard(state) {
     ]);
     rows.push([
       { text: "🔑 Set Env Var", callback_data: "panel:edit:setvar" },
+      { text: "📝 Import .env", callback_data: "panel:edit:importenv" }
+    ]);
+    rows.push([
       { text: "🗑 Del Env Var", callback_data: "panel:edit:delvar" },
       { text: "📜 Lihat Vars", callback_data: "panel:run:vars" }
     ]);
@@ -763,6 +766,42 @@ bot.on("text", async (ctx, next) => {
       }));
       chatInputState.delete(chatId);
       const output = `✅ Env var diset untuk <b>${escapeHtml(data.name)}</b>:\n<blockquote><pre>${escapeHtml(data.key)}=${escapeHtml(value)}</pre></blockquote>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+    // Import Env (.env format)
+    if (step === "IMPORT_ENV") {
+      const lines = text.split(/\r?\n/);
+      const imported = {};
+      let count = 0;
+      for (let line of lines) {
+        line = line.trim();
+        if (!line || line.startsWith("#")) continue;
+        const eqIdx = line.indexOf("=");
+        if (eqIdx > -1) {
+          const key = line.slice(0, eqIdx).trim();
+          let val = line.slice(eqIdx + 1).trim();
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          if (key) {
+            imported[key] = val;
+            count++;
+          }
+        }
+      }
+
+      await db.upsertApp(data.name, (existing) => ({
+        ...existing,
+        env: { ...(existing.env || {}), ...imported },
+        updatedAt: nowIso()
+      }));
+
+      chatInputState.delete(chatId);
+      const output = `✅ <b>${count}</b> env var(s) diimpor untuk <b>${escapeHtml(data.name)}</b>.`;
       await ctx.reply(output, { parse_mode: "HTML" });
       setPanelState(chatId, { output, outputIsHtml: true });
       if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
@@ -1403,7 +1442,7 @@ bot.action("panel:addapp:start", async (ctx) => {
   await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
 });
 
-bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar)$/, async (ctx) => {
+bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv)$/, async (ctx) => {
   const action = ctx.match[1];
   const chatId = getChatIdFromCtx(ctx);
   if (!chatId) return;
@@ -1435,6 +1474,9 @@ bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delv
   } else if (action === "delvar") {
     nextStep = "DEL_ENV";
     promptText = `Menghapus Environment Variable untuk <b>${escapeHtml(appName)}</b>.\nBalas pesan ini dengan <b>KEY</b> env var yang ingin dihapus:`;
+  } else if (action === "importenv") {
+    nextStep = "IMPORT_ENV";
+    promptText = `Mengimpor .env untuk <b>${escapeHtml(appName)}</b>.\nBalas pesan ini dengan teks atau isi dari file <b>.env</b>:\n<blockquote><pre>PORT=8080\nNODE_ENV=production\nTOKEN="abc 123"</pre></blockquote>`;
   }
 
   if (nextStep) {
