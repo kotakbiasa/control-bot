@@ -242,32 +242,42 @@ async function buildVpsInfoText() {
   );
 
   const lines = [
-    "<b>VPS Spec & Usage</b>",
-    `host: ${escapeHtml(hostname)}`,
-    `os: ${escapeHtml(`${os.platform()} ${os.release()} (${os.arch()})`)}`,
-    `node: ${escapeHtml(process.version)}`,
-    `uptime: ${escapeHtml(formatUptime(os.uptime()))}`,
+    "<b>💻 VPS Spec & Usage</b>",
+    "<blockquote>",
+    `<b>Host:</b> ${escapeHtml(hostname)}`,
+    `<b>OS:</b> ${escapeHtml(`${os.platform()} ${os.release()} (${os.arch()})`)}`,
+    `<b>Node:</b> ${escapeHtml(process.version)}`,
+    `<b>Uptime:</b> ${escapeHtml(formatUptime(os.uptime()))}`,
+    "</blockquote>",
     "",
-    `<b>CPU</b>`,
-    `cores: ${escapeHtml(String(cpuCount))}`,
-    `model: ${escapeHtml(cpuModel)}`,
-    `load avg (1m/5m/15m): ${escapeHtml(load)}`,
+    `<b>⚙️ CPU</b>`,
+    "<blockquote>",
+    `<b>Cores:</b> ${escapeHtml(String(cpuCount))}`,
+    `<b>Model:</b> ${escapeHtml(cpuModel)}`,
+    `<b>Load Avg (1m/5m/15m):</b> ${escapeHtml(load)}`,
+    "</blockquote>",
     "",
-    "<b>Memory</b>",
-    `used: ${escapeHtml(formatBytes(usedMem))} / ${escapeHtml(formatBytes(totalMem))} (${escapeHtml(memPct)}%)`,
-    `free: ${escapeHtml(formatBytes(freeMem))}`,
+    "<b>🧠 Memory</b>",
+    "<blockquote>",
+    `<b>Used:</b> ${escapeHtml(formatBytes(usedMem))} / ${escapeHtml(formatBytes(totalMem))} (${escapeHtml(memPct)}%)`,
+    `<b>Free:</b> ${escapeHtml(formatBytes(freeMem))}`,
+    "</blockquote>",
     "",
-    "<b>Disk (/)</b>",
-    `used: ${escapeHtml(disk.used)} / ${escapeHtml(disk.total)} (${escapeHtml(disk.percent)})`,
-    `free: ${escapeHtml(disk.avail)}`,
+    "<b>💾 Disk (/)</b>",
+    "<blockquote>",
+    `<b>Used:</b> ${escapeHtml(disk.used)} / ${escapeHtml(disk.total)} (${escapeHtml(disk.percent)})`,
+    `<b>Free:</b> ${escapeHtml(disk.avail)}`,
+    "</blockquote>",
     "",
-    `<b>Managed Apps</b>`,
-    `total: ${escapeHtml(String(appNames.length))}`,
-    `running: ${escapeHtml(String(runningApps.length))}`
+    `<b>📦 Managed Apps</b>`,
+    "<blockquote>",
+    `<b>Total:</b> ${escapeHtml(String(appNames.length))}`,
+    `<b>Running:</b> ${escapeHtml(String(runningApps.length))}`,
+    "</blockquote>"
   ];
 
   if (usageRows.length > 0) {
-    lines.push("", "<b>Running App Usage</b>", ...usageRows);
+    lines.push("", "<b>📈 Running App Usage</b>", "<blockquote>", ...usageRows, "</blockquote>");
   }
 
   return lines.join("\n");
@@ -337,8 +347,10 @@ function panelText(state) {
   if (view === "main") {
     lines.push(
       "💻 <b>Control Panel Utama</b>",
-      `Total app: ${names.length}`,
-      `Running: ${running}`
+      "<blockquote>",
+      `<b>Total app:</b> ${names.length}`,
+      `<b>Running:</b> ${running}`,
+      "</blockquote>"
     );
     if (names.length === 0) {
       lines.push("", "Belum ada app terdaftar.", "Klik <b>➕ Add App</b> untuk menyetel bot.");
@@ -349,22 +361,26 @@ function panelText(state) {
     const runtime = selectedApp.runtime || {};
     lines.push(
       `📱 <b>Menu Aplikasi: ${escapeHtml(selectedName)}</b>`,
-      `Status: <b>${escapeHtml(runtime.status || "stopped")}</b>`,
-      `PID: ${escapeHtml(String(runtime.pid || "-"))}`,
-      `Branch: ${escapeHtml(selectedApp.branch || "-")}`,
-      `Repo: <code>${escapeHtml(selectedApp.repo || "-")}</code>`,
-      `Deploy Terakhir: ${escapeHtml(selectedApp.lastDeployAt || "-")}`
+      "<blockquote>",
+      `<b>Status:</b> ${escapeHtml(runtime.status || "stopped")}`,
+      `<b>PID:</b> ${escapeHtml(String(runtime.pid || "-"))}`,
+      `<b>Branch:</b> ${escapeHtml(selectedApp.branch || "-")}`,
+      `<b>Repo:</b> <pre>${escapeHtml(selectedApp.repo || "-")}</pre>`,
+      `<b>Deploy Terakhir:</b> ${escapeHtml(selectedApp.lastDeployAt || "-")}`,
+      "</blockquote>"
     );
   } else if (view === "settings" && selectedApp) {
     const runtime = selectedApp.runtime || {};
     lines.push(
       `⚙️ <b>Menu Pengaturan: ${escapeHtml(selectedName)}</b>`,
-      `Status saat ini: ${escapeHtml(runtime.status || "stopped")}`,
+      `Status saat ini: <b>${escapeHtml(runtime.status || "stopped")}</b>`,
       "",
-      "Konfigurasi aktif:",
-      `cmd install: <code>${escapeHtml(selectedApp.installCommand || "npm install")}</code>`,
-      `cmd build: <code>${escapeHtml(selectedApp.buildCommand || "-")}</code>`,
-      `cmd start: <code>${escapeHtml(selectedApp.startCommand || "npm start")}</code>`
+      "<b>Konfigurasi Aktif:</b>",
+      "<blockquote>",
+      `<b>cmd install:</b> <pre>${escapeHtml(selectedApp.installCommand || "npm install")}</pre>`,
+      `<b>cmd build:</b> <pre>${escapeHtml(selectedApp.buildCommand || "-")}</pre>`,
+      `<b>cmd start:</b> <pre>${escapeHtml(selectedApp.startCommand || "npm start")}</pre>`,
+      "</blockquote>"
     );
   }
 
@@ -620,7 +636,7 @@ bot.on("text", async (ctx, next) => {
       }
       data.name = text;
       chatInputState.set(chatId, { step: "ADDAPP_REPO", data, originalMessageId });
-      await ctx.reply(`Sip, nama app: <b>${escapeHtml(text)}</b>.\n\nSekarang balas dengan <b>Repo URL</b> (contoh: https://github.com/user/repo.git):`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+      await ctx.reply(`Sip, nama app:\n<blockquote><b>${escapeHtml(text)}</b></blockquote>\nSekarang balas dengan <b>Repo URL</b> (contoh: https://github.com/user/repo.git):`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
       return;
     }
 
@@ -631,7 +647,7 @@ bot.on("text", async (ctx, next) => {
       }
       data.repo = text;
       chatInputState.set(chatId, { step: "ADDAPP_BRANCH", data, originalMessageId });
-      await ctx.reply(`Repo URL: <code>${escapeHtml(text)}</code>\n\nSekarang balas dengan <b>Branch</b> (contoh: main):`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+      await ctx.reply(`Repo URL:\n<blockquote><pre>${escapeHtml(text)}</pre></blockquote>\nSekarang balas dengan <b>Branch</b> (contoh: main):`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
       return;
     }
 
@@ -647,8 +663,10 @@ bot.on("text", async (ctx, next) => {
 
       const msg = [
         `✅ App <b>${escapeHtml(data.name)}</b> berhasil ditambahkan!`,
-        `Repo: <code>${escapeHtml(data.repo)}</code>`,
-        `Branch: ${escapeHtml(data.branch)}`
+        "<blockquote>",
+        `<b>Repo:</b> <pre>${escapeHtml(data.repo)}</pre>`,
+        `<b>Branch:</b> ${escapeHtml(data.branch)}`,
+        "</blockquote>"
       ].join("\n");
 
       await ctx.reply(msg, { parse_mode: "HTML" });
@@ -675,7 +693,7 @@ bot.on("text", async (ctx, next) => {
         updatedAt: nowIso()
       }));
       chatInputState.delete(chatId);
-      const output = `✅ Repo app <b>${escapeHtml(data.name)}</b> diupdate ke:\n<code>${escapeHtml(text)}</code>`;
+      const output = `✅ Repo app <b>${escapeHtml(data.name)}</b> diupdate ke:\n<blockquote><pre>${escapeHtml(text)}</pre></blockquote>`;
       await ctx.reply(output, { parse_mode: "HTML" });
       setPanelState(chatId, { output, outputIsHtml: true });
       if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
@@ -715,7 +733,7 @@ bot.on("text", async (ctx, next) => {
         updatedAt: nowIso()
       }));
       chatInputState.delete(chatId);
-      const output = `✅ Command ${type.toLowerCase()} untuk "${escapeHtml(data.name)}" diupdate:\n<code>${escapeHtml(text)}</code>`;
+      const output = `✅ Command ${type.toLowerCase()} untuk "<b>${escapeHtml(data.name)}</b>" diupdate:\n<blockquote><pre>${escapeHtml(text)}</pre></blockquote>`;
       await ctx.reply(output, { parse_mode: "HTML" });
       setPanelState(chatId, { output, outputIsHtml: true });
       if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
@@ -731,7 +749,7 @@ bot.on("text", async (ctx, next) => {
       }
       data.key = key;
       chatInputState.set(chatId, { step: "SET_ENV_VAL", data, originalMessageId });
-      await ctx.reply(`ℹ️ Key Environment Variable: <b>${escapeHtml(key)}</b>\n\nSekarang balas dengan <b>Value</b>-nya:`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+      await ctx.reply(`ℹ️ Key Environment Variable:\n<blockquote><b>${escapeHtml(key)}</b></blockquote>\nSekarang balas dengan <b>Value</b>-nya:`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
       return;
     }
 
@@ -744,7 +762,7 @@ bot.on("text", async (ctx, next) => {
         updatedAt: nowIso()
       }));
       chatInputState.delete(chatId);
-      const output = `✅ Env var diset: ${escapeHtml(data.name)} -> <code>${escapeHtml(data.key)}=${escapeHtml(value)}</code>`;
+      const output = `✅ Env var diset untuk <b>${escapeHtml(data.name)}</b>:\n<blockquote><pre>${escapeHtml(data.key)}=${escapeHtml(value)}</pre></blockquote>`;
       await ctx.reply(output, { parse_mode: "HTML" });
       setPanelState(chatId, { output, outputIsHtml: true });
       if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
@@ -1410,10 +1428,10 @@ bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delv
   } else if (action.startsWith("cmd:")) {
     const type = action.split(":")[1].toUpperCase(); // INSTALL, BUILD, START
     nextStep = `EDIT_CMD_${type}`;
-    promptText = `Mengubah Command ${type} untuk <b>${escapeHtml(appName)}</b>.\nBalas dengan command baru (cth: <code>npm install</code>):`;
+    promptText = `Mengubah Command ${type} untuk <b>${escapeHtml(appName)}</b>.\nBalas dengan command baru:\n<blockquote><pre>npm install</pre></blockquote>`;
   } else if (action === "setvar") {
     nextStep = "SET_ENV_KEY";
-    promptText = `Menambah/ubah Environment Variable untuk <b>${escapeHtml(appName)}</b>.\nBalas pesan ini dengan <b>KEY</b> env var (cth: PORT):`;
+    promptText = `Menambah/ubah Environment Variable untuk <b>${escapeHtml(appName)}</b>.\nBalas pesan ini dengan <b>KEY</b> env var:\n<blockquote><pre>PORT</pre></blockquote>`;
   } else if (action === "delvar") {
     nextStep = "DEL_ENV";
     promptText = `Menghapus Environment Variable untuk <b>${escapeHtml(appName)}</b>.\nBalas pesan ini dengan <b>KEY</b> env var yang ingin dihapus:`;
