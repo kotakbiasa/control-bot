@@ -12,14 +12,14 @@ class JsonDb {
 
   ensureFile() {
     if (!fs.existsSync(this.dbPath)) {
-      const initial = { apps: {}, meta: { createdAt: nowIso(), updatedAt: nowIso() } };
+      const initial = { apps: {}, settings: {}, meta: { createdAt: nowIso(), updatedAt: nowIso() } };
       fs.writeFileSync(this.dbPath, JSON.stringify(initial, null, 2), "utf8");
       return;
     }
 
     const raw = fs.readFileSync(this.dbPath, "utf8");
     if (!raw.trim()) {
-      const initial = { apps: {}, meta: { createdAt: nowIso(), updatedAt: nowIso() } };
+      const initial = { apps: {}, settings: {}, meta: { createdAt: nowIso(), updatedAt: nowIso() } };
       fs.writeFileSync(this.dbPath, JSON.stringify(initial, null, 2), "utf8");
       return;
     }
@@ -45,6 +45,7 @@ class JsonDb {
     const raw = fs.readFileSync(this.dbPath, "utf8");
     const parsed = JSON.parse(raw);
     parsed.apps = parsed.apps || {};
+    parsed.settings = parsed.settings || {};
     parsed.meta = parsed.meta || {};
     return parsed;
   }
@@ -70,6 +71,17 @@ class JsonDb {
   async deleteApp(name) {
     return this.queueWrite((db) => {
       delete db.apps[name];
+      return db;
+    });
+  }
+
+  getSettings() {
+    return this.read().settings;
+  }
+
+  async updateSettings(patch) {
+    return this.queueWrite((db) => {
+      db.settings = { ...(db.settings || {}), ...patch };
       return db;
     });
   }

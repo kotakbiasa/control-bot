@@ -3,6 +3,7 @@ const os = require("os");
 const path = require("path");
 const archiver = require("archiver");
 require("dotenv").config();
+process.env.TZ = process.env.TZ || "Asia/Makassar";
 const { Telegraf } = require("telegraf");
 const { JsonDb } = require("./db");
 const { Deployer, runShell } = require("./deployer");
@@ -15,7 +16,8 @@ const {
   parseCommandArgs,
   normalizeLines,
   escapeHtml,
-  withinDir
+  withinDir,
+  adminIdValid
 } = require("./utils");
 
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -43,6 +45,10 @@ if (ADMIN_IDS.length === 0) {
 }
 
 const db = new JsonDb(DB_PATH);
+const settings = db.getSettings();
+if (settings.timezone) {
+  process.env.TZ = settings.timezone;
+}
 const processManager = new ProcessManager({ db, logsDir: LOGS_DIR });
 const deployer = new Deployer({ db, deploymentsDir: DEPLOYMENTS_DIR });
 const bot = new Telegraf(BOT_TOKEN);
@@ -120,10 +126,18 @@ function setPanelState(chatId, patch = {}) {
   return synced;
 }
 
+function isAdmin(id) {
+  if (!id) return false;
+  if (ADMIN_IDS.includes(id)) return true;
+  const dbSettings = db.getSettings();
+  if (dbSettings.admins && dbSettings.admins.includes(id)) return true;
+  return false;
+}
+
 function adminOnly(ctx, next) {
   const fromId = ctx.from && ctx.from.id ? String(ctx.from.id) : "";
-  if (!ADMIN_IDS.includes(fromId)) {
-    return ctx.reply("Akses ditolak. ID Telegram kamu belum masuk ADMIN_IDS.");
+  if (!isAdmin(fromId)) {
+    return ctx.reply("Akses ditolak. ID Telegram kamu bukan Admin.");
   }
   return next();
 }
@@ -399,6 +413,22 @@ function panelText(state) {
       `<b>Auto-Restart:</b> <code>${escapeHtml(selectedApp.cronSchedule || "Mati")}</code>`,
       "</blockquote>"
     );
+  } else if (view === "bot_settings") {
+    const dbSettings = db.getSettings();
+    const dynamicAdminsCount = (dbSettings.admins || []).length;
+    const totalAdmins = ADMIN_IDS.length + dynamicAdminsCount;
+
+    lines.push(
+      "⚙️ <b>Pengaturan Bot (Global)</b>",
+      "<blockquote>",
+      `<b>Timezone:</b> ${escapeHtml(process.env.TZ)}`,
+      `<b>Node.js:</b> ${escapeHtml(process.version)}`,
+      `<b>Bot Uptime:</b> ${escapeHtml(formatUptime(process.uptime()))}`,
+      `<b>Total Admin:</b> ${totalAdmins} (${ADMIN_IDS.length} from .env, ${dynamicAdminsCount} from DB)`,
+      "</blockquote>",
+      "",
+      "Pilih menu di bawah ini untuk mengatur bot:"
+    );
   } else if (view === "vps") {
     lines.push(state.output);
   }
@@ -451,8 +481,23 @@ function panelKeyboard(state) {
     }
 
     rows.push([
+      { text: "⚙️ Pengaturan Bot", callback_data: "panel:nav:bot_settings" }
+    ]);
+  } else if (view === "bot_settings") {
+    rows.push([
+      { text: "👥 Lihat Admin", callback_data: "panel:bot:admins" },
+      { text: "⏰ Set Timezone", callback_data: "panel:bot:settz" }
+    ]);
+    rows.push([
+      { text: "➕ Tambah Admin", callback_data: "panel:bot:addadmin" },
+      { text: "➖ Hapus Admin", callback_data: "panel:bot:deladmin" }
+    ]);
+    rows.push([
       { text: "🤖 Update Bot", callback_data: "panel:bot:update" },
       { text: "⚡ Restart Bot", callback_data: "panel:bot:restart" }
+    ]);
+    rows.push([
+      { text: "🔙 Kembali", callback_data: "panel:nav:main" }
     ]);
   } else if (view === "vps") {
     rows.push([
@@ -862,6 +907,81 @@ bot.on("text", async (ctx, next) => {
       return;
     }
 
+    // Set Timezone
+    if (step === "SET_TZ") {
+      const tz = text.trim();
+      if (!/^[A-Za-z0-9_+-]+(\/[A-Za-z0-9_+-]+)*$/.test(tz)) {
+        await ctx.reply("Format timezone tidak valid. Coba lagi atau Cancel ❌.");
+        return;
+      }
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+      } catch (e) {
+        await ctx.reply(`Timezone "${tz}" tidak dikenali oleh sistem. Coba lagi (contoh: Asia/Makassar) atau Cancel ❌.`);
+        return;
+      }
+
+      await db.updateSettings({ timezone: tz });
+      process.env.TZ = tz;
+
+      chatInputState.delete(chatId);
+      const output = `✅ Timezone bot berhasil diubah menjadi <b>${escapeHtml(tz)}</b>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+    // Add Admin
+    if (step === "SET_ADD_ADMIN") {
+      const newAdminId = text.trim();
+      if (!adminIdValid(newAdminId)) {
+        await ctx.reply("Telegram ID tidak valid (hanya boleh angka). Coba lagi atau Cancel ❌.");
+        return;
+      }
+      if (isAdmin(newAdminId)) {
+        await ctx.reply(`ID <code>${escapeHtml(newAdminId)}</code> sudah menjadi admin. Cancel ❌.`, { parse_mode: "HTML" });
+        return;
+      }
+
+      const currentSettings = db.getSettings();
+      const currentAdmins = currentSettings.admins || [];
+      await db.updateSettings({ admins: [...currentAdmins, newAdminId] });
+
+      chatInputState.delete(chatId);
+      const output = `✅ Admin baru berhasil ditambahkan: <code>${escapeHtml(newAdminId)}</code>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+    // Delete Admin
+    if (step === "SET_DEL_ADMIN") {
+      const delAdminId = text.trim();
+      if (ADMIN_IDS.includes(delAdminId)) {
+        await ctx.reply(`ID <code>${escapeHtml(delAdminId)}</code> adalah admin bawaan (.env) dan tidak bisa dihapus dari sini. Cancel ❌.`, { parse_mode: "HTML" });
+        return;
+      }
+      const currentSettings = db.getSettings();
+      const currentAdmins = currentSettings.admins || [];
+
+      if (!currentAdmins.includes(delAdminId)) {
+        await ctx.reply(`ID <code>${escapeHtml(delAdminId)}</code> tidak ditemukan dalam daftar admin tambahan. Coba lagi atau Cancel ❌.`, { parse_mode: "HTML" });
+        return;
+      }
+
+      const newAdmins = currentAdmins.filter(id => id !== delAdminId);
+      await db.updateSettings({ admins: newAdmins });
+
+      chatInputState.delete(chatId);
+      const output = `✅ Admin berhasil dihapus: <code>${escapeHtml(delAdminId)}</code>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
     // Delete Env Var
     if (step === "DEL_ENV") {
       const key = text.trim();
@@ -909,6 +1029,7 @@ bot.command("help", async (ctx) => {
     [
       "Daftar command:",
       "/panel - buka control panel inline (tombol)",
+      "/settings - buka pengaturan bot",
       "/vps - lihat spec & usage VPS",
       "/apps - list semua app",
       "/status [nama] - status app",
@@ -929,6 +1050,15 @@ bot.command("help", async (ctx) => {
 
 bot.command("panel", async (ctx) => {
   await renderPanel(ctx, {
+    output: "",
+    outputIsHtml: false,
+    confirmRemove: false
+  });
+});
+
+bot.command("settings", async (ctx) => {
+  await renderPanel(ctx, {
+    view: "bot_settings",
     output: "",
     outputIsHtml: false,
     confirmRemove: false
@@ -1627,6 +1757,69 @@ bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delv
   }
 });
 
+bot.action("panel:bot:settz", async (ctx) => {
+  const chatId = getChatIdFromCtx(ctx);
+  if (!chatId) return;
+  await answerCallback(ctx);
+  chatInputState.set(chatId, { step: "SET_TZ", data: {}, originalMessageId: ctx.callbackQuery.message?.message_id });
+  const text = "⚙️ <b>Pengaturan Timezone</b>\n\nBalas pesan ini dengan timezone yang diinginkan (contoh: <code>Asia/Makassar</code>, <code>Asia/Jakarta</code>, atau <code>UTC</code>):";
+  await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+});
+
+bot.action("panel:bot:admins", async (ctx) => {
+  const chatId = getChatIdFromCtx(ctx);
+  if (!chatId) return;
+  await answerCallback(ctx);
+
+  const dbSettings = db.getSettings();
+  const dynamicAdmins = dbSettings.admins || [];
+
+  let output = "👥 <b>Daftar Administrator Bot</b>\n\n";
+  output += "<b>Dari .env (Permanent):</b>\n";
+  if (ADMIN_IDS.length > 0) {
+    ADMIN_IDS.forEach(id => output += `• <code>${escapeHtml(id)}</code>\n`);
+  } else {
+    output += "<i>(Tidak ada)</i>\n";
+  }
+
+  output += "\n<b>Dari Database (Dinamic):</b>\n";
+  if (dynamicAdmins.length > 0) {
+    dynamicAdmins.forEach(id => output += `• <code>${escapeHtml(id)}</code>\n`);
+  } else {
+    output += "<i>(Belum ada admin tambahan)</i>\n";
+  }
+
+  setPanelState(chatId, { output, outputIsHtml: true });
+  await renderPanel(ctx);
+});
+
+bot.action("panel:bot:addadmin", async (ctx) => {
+  const chatId = getChatIdFromCtx(ctx);
+  if (!chatId) return;
+  await answerCallback(ctx);
+  chatInputState.set(chatId, { step: "SET_ADD_ADMIN", data: {}, originalMessageId: ctx.callbackQuery.message?.message_id });
+  const text = "➕ <b>Tambah Admin Baru</b>\n\nBalas pesan ini dengan <b>Telegram ID</b> admin baru (hanya angka):";
+  await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+});
+
+bot.action("panel:bot:deladmin", async (ctx) => {
+  const chatId = getChatIdFromCtx(ctx);
+  if (!chatId) return;
+  await answerCallback(ctx);
+
+  const dbSettings = db.getSettings();
+  const dynamicAdmins = dbSettings.admins || [];
+
+  if (dynamicAdmins.length === 0) {
+    await ctx.reply("Tidak ada admin tambahan yang bisa dihapus (Admin dari .env tidak bisa dihapus dari sini).");
+    return;
+  }
+
+  chatInputState.set(chatId, { step: "SET_DEL_ADMIN", data: {}, originalMessageId: ctx.callbackQuery.message?.message_id });
+  const text = "➖ <b>Hapus Admin</b>\n\nBalas pesan ini dengan <b>Telegram ID</b> admin yang ingin dihapus:\n\nCatatan: Admin bawaan dari .env tidak dapat dihapus dari sini.";
+  await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+});
+
 bot.action(/^panel:cron:(.+)$/, async (ctx) => {
   const cronStr = ctx.match[1].trim();
   const chatId = getChatIdFromCtx(ctx);
@@ -1685,7 +1878,7 @@ bot.action(/^panel:app:(.+)$/, async (ctx) => {
   });
 });
 
-bot.action(/^panel:nav:(main|app|settings)$/, async (ctx) => {
+bot.action(/^panel:nav:(main|app|settings|bot_settings)$/, async (ctx) => {
   const targetView = ctx.match[1];
   await answerCallback(ctx);
 

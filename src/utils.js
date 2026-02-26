@@ -36,6 +36,10 @@ function repoUrlValid(repo) {
   return /^[A-Za-z0-9:@._/\-~%+?=&]+$/.test(repo);
 }
 
+function adminIdValid(id) {
+  return /^[0-9]+$/.test(id);
+}
+
 function splitArgs(rawText = "") {
   const parts = [];
   let current = "";
@@ -123,5 +127,6 @@ module.exports = {
   parseCommandArgs,
   normalizeLines,
   escapeHtml,
-  withinDir
+  withinDir,
+  adminIdValid
 };
