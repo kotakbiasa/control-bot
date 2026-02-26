@@ -415,6 +415,10 @@ function panelText(state) {
     lines.push("", `⚠️ <b>Konfirmasi penghapusan app:</b> ${escapeHtml(selectedName)}`);
   }
 
+  const d = new Date(state.updatedAt || new Date());
+  const dateOptions = { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' };
+  lines.push("", `🕒 <i>Terakhir diperbarui: ${d.toLocaleString('id-ID', dateOptions)}</i>`);
+
   return lines.join("\n");
 }
 
