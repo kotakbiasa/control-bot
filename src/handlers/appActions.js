@@ -47,7 +47,7 @@ function register(bot, deps) {
     });
 
     bot.action(
-        /^panel:run:(status|vars|log80|log200|start|stop|restart|deploy|deployr|update|remove|rmkeep|rmfiles|rmcancel)$/,
+        /^panel:run:(status|vars|log80|log200|start|stop|restart|deploy|deployr|update|remove|rmkeep|rmfiles|rmcancel|pin)$/,
         async (ctx) => {
             const action = ctx.match[1];
             try {
@@ -66,6 +66,17 @@ function register(bot, deps) {
 
                 const appName = selected.name;
 
+                if (action === "pin") {
+                    await answerCallback(ctx);
+                    const app = db.getApp(appName);
+                    const newPinned = !(app && app.pinned);
+                    await db.upsertApp(appName, (existing) => ({ ...existing, pinned: newPinned }));
+                    const output = newPinned
+                        ? `📌 <b>${require("../utils").escapeHtml(appName)}</b> dipasang sebagai favorit!`
+                        : `📌 <b>${require("../utils").escapeHtml(appName)}</b> dicopot dari favorit.`;
+                    await renderPanel(ctx, { output, outputIsHtml: true, confirmRemove: false }, deps);
+                    return;
+                }
                 if (action === "status") {
                     await answerCallback(ctx, "Status updated");
                     const app = db.getApp(appName);

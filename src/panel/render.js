@@ -16,13 +16,20 @@ function panelText(state, deps) {
     const lines = [];
 
     if (view === "main") {
+        // Collect tags
+        const allTags = new Set();
+        for (const name of names) { const app = apps[name]; if (app.tags) app.tags.forEach(t => allTags.add(t)); }
+        const pinnedCount = names.filter(n => apps[n].pinned).length;
+
         lines.push(
             "💻 <b>Control Panel Utama</b>",
             "<blockquote>",
             `<b>Total app:</b> ${names.length}`,
             `<b>Running:</b> ${running}`,
+            pinnedCount > 0 ? `<b>Pinned:</b> ${pinnedCount}` : null,
+            allTags.size > 0 ? `<b>Tags:</b> ${[...allTags].map(t => `#${escapeHtml(t)}`).join(" ")}` : null,
             "</blockquote>"
-        );
+        ).filter(Boolean);
         if (names.length === 0) {
             lines.push("", "Belum ada app terdaftar.", "Klik <b>➕ Add App</b> untuk menyetel bot.");
         } else {
@@ -132,12 +139,23 @@ function panelKeyboard(state, deps) {
             { text: "🆕 Add App", callback_data: "panel:addapp:start" }
         ]);
 
-        for (let i = 0; i < names.length; i += 2) {
-            const chunk = names.slice(i, i + 2).map((name) => {
-                const runtime = appRuntime(apps[name]);
+        // Sort: pinned first, then alphabetical
+        const sortedNames = [...names].sort((a, b) => {
+            const ap = apps[a].pinned ? 0 : 1;
+            const bp = apps[b].pinned ? 0 : 1;
+            if (ap !== bp) return ap - bp;
+            return a.localeCompare(b);
+        });
+
+        for (let i = 0; i < sortedNames.length; i += 2) {
+            const chunk = sortedNames.slice(i, i + 2).map((name) => {
+                const app = apps[name];
+                const runtime = appRuntime(app);
                 const circle = runtime.status === "running" ? "🟢" : "🔴";
+                const pin = app.pinned ? "⭐" : "";
+                const tag = (app.tags && app.tags.length > 0) ? ` [${app.tags[0]}]` : "";
                 return {
-                    text: `${circle} ${name}`,
+                    text: `${pin}${circle} ${name}${tag}`,
                     callback_data: `panel:sel:${callbackAppName(name)}`
                 };
             });
@@ -210,7 +228,9 @@ function panelKeyboard(state, deps) {
                 { text: "📋 Logs 200", callback_data: "panel:run:log200" },
                 { text: "⚙️ Settings", callback_data: `panel:nav:settings:${callbackAppName(synced.selectedApp)}` }
             ]);
+            const appData = apps[synced.selectedApp];
             rows.push([
+                { text: appData && appData.pinned ? "📌 Unpin" : "📌 Pin", callback_data: "panel:run:pin" },
                 { text: "🔙 Kembali", callback_data: "panel:nav:main" },
                 { text: "🗑️ Hapus App", callback_data: "panel:run:remove" }
             ]);
