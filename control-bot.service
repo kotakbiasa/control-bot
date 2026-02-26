@@ -19,6 +19,9 @@ Environment="NODE_ENV=production"
 Restart=always
 RestartSec=3
 
+# Mencegah systemd membunuh app yang dijalankan bot saat bot direstart
+KillMode=process
+
 StandardOutput=syslog
 StandardError=syslog
 SyslogIdentifier=control-bot
