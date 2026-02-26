@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
-const { ensureDir, nowIso } = require("./utils");
+const { ensureDir, nowIso, getAugmentedEnv } = require("./utils");
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -110,7 +110,7 @@ class ProcessManager {
     const errFd = fs.openSync(err, "a");
     const child = spawn(app.startCommand, {
       cwd: app.directory,
-      env: { ...process.env, ...(app.env || {}) },
+      env: getAugmentedEnv(app.env || {}),
       shell: true,
       detached: true,
       stdio: ["ignore", outFd, errFd]

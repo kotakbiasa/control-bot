@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { exec } = require("child_process");
 const { promisify } = require("util");
-const { nowIso, withinDir } = require("./utils");
+const { nowIso, withinDir, getAugmentedEnv } = require("./utils");
 
 const execAsync = promisify(exec);
 
@@ -11,7 +11,7 @@ async function runShell(command, options = {}) {
   const result = await execAsync(command, {
     cwd,
     maxBuffer: 1024 * 1024 * 20,
-    env: process.env
+    env: getAugmentedEnv()
   });
   return {
     stdout: result.stdout || "",

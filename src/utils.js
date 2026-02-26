@@ -1,5 +1,19 @@
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
+
+function getAugmentedEnv(customEnv = {}) {
+  const env = { ...process.env, ...customEnv };
+  const extraPaths = [
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    path.join(os.homedir(), ".local/bin"),
+    path.join(os.homedir(), ".cargo/bin")
+  ];
+  const currentPath = env.PATH || "";
+  env.PATH = [...extraPaths, currentPath].filter(Boolean).join(path.delimiter);
+  return env;
+}
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -98,6 +112,7 @@ function withinDir(baseDir, target) {
 }
 
 module.exports = {
+  getAugmentedEnv,
   ensureDir,
   nowIso,
   appNameValid,
