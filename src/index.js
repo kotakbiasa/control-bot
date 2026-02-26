@@ -47,6 +47,7 @@ const deployer = new Deployer({ db, deploymentsDir: DEPLOYMENTS_DIR });
 const bot = new Telegraf(BOT_TOKEN);
 const busyApps = new Set();
 const panelStateByChat = new Map();
+const chatInputState = new Map();
 
 function clip(text = "", max = 3500) {
   if (text.length <= max) return text;
@@ -376,7 +377,7 @@ function panelKeyboard(state) {
     [
       { text: "Refresh", callback_data: "panel:refresh" },
       { text: "VPS", callback_data: "panel:vps" },
-      { text: "Setup", callback_data: "panel:setup" }
+      { text: "Add App", callback_data: "panel:addapp:start" }
     ]
   ];
 
@@ -408,6 +409,19 @@ function panelKeyboard(state) {
       { text: "Deploy", callback_data: "panel:run:deploy" },
       { text: "Deploy+Restart", callback_data: "panel:run:deployr" },
       { text: "Update", callback_data: "panel:run:update" }
+    ]);
+    rows.push([
+      { text: "Edit Repo", callback_data: "panel:edit:repo" },
+      { text: "Edit Branch", callback_data: "panel:edit:branch" }
+    ]);
+    rows.push([
+      { text: "Cmd Install", callback_data: "panel:edit:cmd:install" },
+      { text: "Cmd Build", callback_data: "panel:edit:cmd:build" },
+      { text: "Cmd Start", callback_data: "panel:edit:cmd:start" }
+    ]);
+    rows.push([
+      { text: "Set Env Var", callback_data: "panel:edit:setvar" },
+      { text: "Del Env Var", callback_data: "panel:edit:delvar" }
     ]);
 
     if (synced.confirmRemove) {
@@ -549,6 +563,190 @@ async function removeAppInternal(name, { deleteFiles = false, force = false } = 
 
 bot.use(adminOnly);
 
+bot.on("text", async (ctx, next) => {
+  const chatId = getChatIdFromCtx(ctx);
+  if (!chatId) return next();
+
+  const stateInfo = chatInputState.get(chatId);
+  if (!stateInfo) return next();
+
+  const text = ctx.message.text.trim();
+  const { step, data, originalMessageId } = stateInfo;
+
+  try {
+    // We handle routing inside the state check
+    if (step === "ADDAPP_NAME") {
+      if (!appNameValid(text)) {
+        await ctx.reply("Nama app hanya boleh huruf, angka, underscore, dash. Coba lagi atau tekan Cancel ❌.");
+        return;
+      }
+      if (text.length > 32) {
+        await ctx.reply("Nama app maksimal 32 karakter. Coba lagi atau tekan Cancel ❌.");
+        return;
+      }
+      if (db.getApp(text)) {
+        await ctx.reply(`App "${text}" sudah ada. Ketik nama lain atau Cancel ❌.`);
+        return;
+      }
+      data.name = text;
+      chatInputState.set(chatId, { step: "ADDAPP_REPO", data, originalMessageId });
+      await ctx.reply(`Sip, nama app: <b>${escapeHtml(text)}</b>.\n\nSekarang balas dengan <b>Repo URL</b> (contoh: https://github.com/user/repo.git):`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+      return;
+    }
+
+    if (step === "ADDAPP_REPO") {
+      if (!repoUrlValid(text)) {
+        await ctx.reply("Repo URL tidak valid. Coba ulangi kirim link repo yang benar atau Cancel ❌.");
+        return;
+      }
+      data.repo = text;
+      chatInputState.set(chatId, { step: "ADDAPP_BRANCH", data, originalMessageId });
+      await ctx.reply(`Repo URL: <code>${escapeHtml(text)}</code>\n\nSekarang balas dengan <b>Branch</b> (contoh: main):`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+      return;
+    }
+
+    if (step === "ADDAPP_BRANCH") {
+      if (!text.match(/^[A-Za-z0-9._/-]+$/)) {
+        await ctx.reply("Branch tidak valid. Coba ulangi atau Cancel ❌.");
+        return;
+      }
+      data.branch = text;
+      const app = makeNewApp({ name: data.name, repo: data.repo, branch: data.branch });
+      await db.upsertApp(data.name, app);
+      chatInputState.delete(chatId);
+
+      const msg = [
+        `✅ App <b>${escapeHtml(data.name)}</b> berhasil ditambahkan!`,
+        `Repo: <code>${escapeHtml(data.repo)}</code>`,
+        `Branch: ${escapeHtml(data.branch)}`
+      ].join("\n");
+
+      await ctx.reply(msg, { parse_mode: "HTML" });
+      setPanelState(chatId, { selectedApp: data.name, output: msg, outputIsHtml: true });
+      if (originalMessageId) {
+        try {
+          // Attempt to refresh the panel inline
+          ctx.callbackQuery = { message: { message_id: originalMessageId } };
+          await renderPanel(ctx);
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Edit Repo
+    if (step === "EDIT_REPO") {
+      if (!repoUrlValid(text)) {
+        await ctx.reply("Repo URL tidak valid. Coba ulangi atau Cancel ❌.");
+        return;
+      }
+      await db.upsertApp(data.name, (existing) => ({
+        ...existing,
+        repo: text,
+        updatedAt: nowIso()
+      }));
+      chatInputState.delete(chatId);
+      const output = `✅ Repo app <b>${escapeHtml(data.name)}</b> diupdate ke:\n<code>${escapeHtml(text)}</code>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+    // Edit Branch
+    if (step === "EDIT_BRANCH") {
+      if (!text.match(/^[A-Za-z0-9._/-]+$/)) {
+        await ctx.reply("Branch tidak valid. Coba ulangi atau Cancel ❌.");
+        return;
+      }
+      await db.upsertApp(data.name, (existing) => ({
+        ...existing,
+        branch: text,
+        updatedAt: nowIso()
+      }));
+      chatInputState.delete(chatId);
+      const output = `✅ Branch app <b>${escapeHtml(data.name)}</b> diupdate ke "${escapeHtml(text)}".`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+    // Edit Commands
+    if (step.startsWith("EDIT_CMD_")) {
+      const type = step.split("_")[2]; // INSTALL, BUILD, START
+      let key = "";
+      if (type === "INSTALL") key = "installCommand";
+      if (type === "BUILD") key = "buildCommand";
+      if (type === "START") key = "startCommand";
+
+      await db.upsertApp(data.name, (existing) => ({
+        ...existing,
+        [key]: text,
+        updatedAt: nowIso()
+      }));
+      chatInputState.delete(chatId);
+      const output = `✅ Command ${type.toLowerCase()} untuk "${escapeHtml(data.name)}" diupdate:\n<code>${escapeHtml(text)}</code>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+    // Set Env Var Step 1 (Key)
+    if (step === "SET_ENV_KEY") {
+      const key = text.trim();
+      if (!key.match(/^[A-Za-z0-9_]+$/)) {
+        await ctx.reply("Key env var hanya boleh huruf, angka, underscore. Coba lagi atau Cancel ❌.");
+        return;
+      }
+      data.key = key;
+      chatInputState.set(chatId, { step: "SET_ENV_VAL", data, originalMessageId });
+      await ctx.reply(`ℹ️ Key Environment Variable: <b>${escapeHtml(key)}</b>\n\nSekarang balas dengan <b>Value</b>-nya:`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+      return;
+    }
+
+    // Set Env Var Step 2 (Value)
+    if (step === "SET_ENV_VAL") {
+      const value = text;
+      await db.upsertApp(data.name, (existing) => ({
+        ...existing,
+        env: { ...(existing.env || {}), [data.key]: value },
+        updatedAt: nowIso()
+      }));
+      chatInputState.delete(chatId);
+      const output = `✅ Env var diset: ${escapeHtml(data.name)} -> <code>${escapeHtml(data.key)}=${escapeHtml(value)}</code>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+    // Delete Env Var
+    if (step === "DEL_ENV") {
+      const key = text.trim();
+      await db.upsertApp(data.name, (existing) => {
+        const env = { ...(existing.env || {}) };
+        delete env[key];
+        return {
+          ...existing,
+          env,
+          updatedAt: nowIso()
+        };
+      });
+      chatInputState.delete(chatId);
+      const output = `✅ Env var dihapus: ${escapeHtml(data.name)} -> <code>${escapeHtml(key)}</code>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+  } catch (err) {
+    chatInputState.delete(chatId);
+    await replyError(ctx, err);
+  }
+});
+
 bot.start(async (ctx) => {
   await ctx.reply(
     [
@@ -573,14 +771,7 @@ bot.command("help", async (ctx) => {
       "/vps - lihat spec & usage VPS",
       "/apps - list semua app",
       "/status [nama] - status app",
-      "/addapp <nama> <repo_url> [branch] - tambah app",
       "/removeapp <nama> [--delete-files] [--force] - hapus app",
-      "/setrepo <nama> <repo_url> - update repo",
-      "/setbranch <nama> <branch> - update branch",
-      "/setcmd <nama> <start|install|build> <command...> - set command",
-      "/setvar <nama> <KEY> <VALUE...> - set env var",
-      "/delvar <nama> <KEY> - hapus env var",
-      "/vars <nama> - lihat env var",
       "/deploy <nama> [--restart] - clone/pull + install + build",
       "/update <nama> - pull + install + build + restart jika running",
       "/start <nama> - jalankan app",
@@ -589,7 +780,8 @@ bot.command("help", async (ctx) => {
       "/logs <nama> [lines] - lihat tail log stdout/stderr",
       "/run <nama> <command...> - jalankan command manual di folder app",
       "",
-      "Catatan: semua data tersimpan di data/db.json"
+      "Catatan: Tambah app dan edit config (repo, branch, env, dll) sekarang bisa dilakukan langsung melalui tombol di /panel.",
+      "Semua data tersimpan di data/db.json"
     ].join("\n")
   );
 });
@@ -1145,28 +1337,62 @@ bot.action("panel:vps", async (ctx) => {
   });
 });
 
-bot.action("panel:setup", async (ctx) => {
+bot.action("panel:cancel_input", async (ctx) => {
+  const chatId = getChatIdFromCtx(ctx);
+  if (chatId) {
+    chatInputState.delete(chatId);
+  }
+  await answerCallback(ctx, "Input dibatalkan.");
+  await ctx.editMessageText("Membatalkan input. Silakan kembali ke panel.");
+});
+
+bot.action("panel:addapp:start", async (ctx) => {
   await answerCallback(ctx);
-  await renderPanel(ctx, {
-    output: [
-      "<b>Setup App Baru</b>",
-      "1) Tambah app:",
-      "<code>/addapp namabot https://github.com/user/repo.git main</code>",
-      "",
-      "2) (Opsional) set command:",
-      "<code>/setcmd namabot install npm ci</code>",
-      "<code>/setcmd namabot build npm run build</code>",
-      "<code>/setcmd namabot start npm run start</code>",
-      "",
-      "3) Deploy + jalankan:",
-      "<code>/deploy namabot</code>",
-      "<code>/start namabot</code>",
-      "",
-      "Setelah app ditambahkan, pilih app di tombol panel lalu jalankan aksi."
-    ].join("\n"),
-    outputIsHtml: true,
-    confirmRemove: false
-  });
+  const chatId = getChatIdFromCtx(ctx);
+  if (!chatId) return;
+  chatInputState.set(chatId, { step: "ADDAPP_NAME", data: {}, originalMessageId: ctx.callbackQuery.message?.message_id });
+  const text = "Ayo tambahkan app baru!\n\nBalas pesan ini dengan <b>Nama App</b> (huruf, angka, strip, tanpa spasi):";
+  await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+});
+
+bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar)$/, async (ctx) => {
+  const action = ctx.match[1];
+  const chatId = getChatIdFromCtx(ctx);
+  if (!chatId) return;
+
+  const selected = selectedAppFromState(chatId);
+  if (!selected) {
+    await answerCallback(ctx, "Pilih app dulu");
+    return;
+  }
+
+  await answerCallback(ctx);
+  const appName = selected.name;
+  let nextStep = "";
+  let promptText = "";
+
+  if (action === "repo") {
+    nextStep = "EDIT_REPO";
+    promptText = `Mengubah Repo untuk <b>${escapeHtml(appName)}</b>.\nBalas dengan Repo URL baru:`;
+  } else if (action === "branch") {
+    nextStep = "EDIT_BRANCH";
+    promptText = `Mengubah Branch untuk <b>${escapeHtml(appName)}</b>.\nBalas dengan nama Branch baru:`;
+  } else if (action.startsWith("cmd:")) {
+    const type = action.split(":")[1].toUpperCase(); // INSTALL, BUILD, START
+    nextStep = `EDIT_CMD_${type}`;
+    promptText = `Mengubah Command ${type} untuk <b>${escapeHtml(appName)}</b>.\nBalas dengan command baru (cth: <code>npm install</code>):`;
+  } else if (action === "setvar") {
+    nextStep = "SET_ENV_KEY";
+    promptText = `Menambah/ubah Environment Variable untuk <b>${escapeHtml(appName)}</b>.\nBalas pesan ini dengan <b>KEY</b> env var (cth: PORT):`;
+  } else if (action === "delvar") {
+    nextStep = "DEL_ENV";
+    promptText = `Menghapus Environment Variable untuk <b>${escapeHtml(appName)}</b>.\nBalas pesan ini dengan <b>KEY</b> env var yang ingin dihapus:`;
+  }
+
+  if (nextStep) {
+    chatInputState.set(chatId, { step: nextStep, data: { name: appName }, originalMessageId: ctx.callbackQuery.message?.message_id });
+    await ctx.reply(promptText, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+  }
 });
 
 bot.action(/^panel:sel:(.+)$/, async (ctx) => {
@@ -1192,232 +1418,232 @@ bot.action(
   /^panel:run:(status|vars|log80|log200|start|stop|restart|deploy|deployr|update|remove|rmkeep|rmfiles|rmcancel)$/,
   async (ctx) => {
     const action = ctx.match[1];
-  try {
-    const chatId = getChatIdFromCtx(ctx);
-    if (!chatId) {
-      await answerCallback(ctx, "Chat tidak valid");
-      return;
-    }
+    try {
+      const chatId = getChatIdFromCtx(ctx);
+      if (!chatId) {
+        await answerCallback(ctx, "Chat tidak valid");
+        return;
+      }
 
-    const selected = selectedAppFromState(chatId);
-    if (!selected) {
-      await answerCallback(ctx, "Belum ada app");
-      await renderPanel(ctx, {
-        output: [
-          "<b>Belum ada app</b>",
-          "Tambahkan app dulu dengan:",
-          "<code>/addapp namabot https://github.com/user/repo.git main</code>"
-        ].join("\n"),
-        outputIsHtml: true
-      });
-      return;
-    }
+      const selected = selectedAppFromState(chatId);
+      if (!selected) {
+        await answerCallback(ctx, "Belum ada app");
+        await renderPanel(ctx, {
+          output: [
+            "<b>Belum ada app</b>",
+            "Tambahkan app dulu dengan:",
+            "<code>/addapp namabot https://github.com/user/repo.git main</code>"
+          ].join("\n"),
+          outputIsHtml: true
+        });
+        return;
+      }
 
-    const appName = selected.name;
+      const appName = selected.name;
 
-    if (action === "status") {
-      await answerCallback(ctx, "Status updated");
-      const app = db.getApp(appName);
-      const runtime = (app && app.runtime) || {};
-      const statusText = [
-        `App: ${appName}`,
-        `status: ${runtime.status || "stopped"}`,
-        `pid: ${runtime.pid || "-"}`,
-        `lastStartAt: ${runtime.lastStartAt || "-"}`,
-        `lastStopAt: ${runtime.lastStopAt || "-"}`,
-        `lastExitCode: ${runtime.lastExitCode ?? "-"}`
-      ].join("\n");
-      await renderPanel(ctx, {
-        output: statusText,
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
-
-    if (action === "vars") {
-      await answerCallback(ctx);
-      const app = db.getApp(appName);
-      const entries = Object.entries((app && app.env) || {});
-      const text = entries.length > 0 ? entries.map(([k, v]) => `${k}=${v}`).join("\n") : "Belum ada env var.";
-      await renderPanel(ctx, {
-        output: `App: ${appName}\n${text}`,
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
-
-    if (action === "log80" || action === "log200") {
-      await answerCallback(ctx, "Loading logs...");
-      const lines = action === "log200" ? 200 : 80;
-      const logs = processManager.readLogs(appName, lines);
-      const text = [
-        `App: ${appName}`,
-        `stdout (${lines} lines):`,
-        logs.out || "(kosong)",
-        "",
-        `stderr (${lines} lines):`,
-        logs.err || "(kosong)"
-      ].join("\n");
-      await renderPanel(ctx, {
-        output: clip(text, 2600),
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
-
-    if (action === "remove") {
-      await answerCallback(ctx);
-      await renderPanel(ctx, {
-        confirmRemove: true,
-        output: `Konfirmasi hapus app "${appName}". Pilih tombol confirm di bawah.`,
-        outputIsHtml: false
-      });
-      return;
-    }
-
-    if (action === "rmcancel") {
-      await answerCallback(ctx, "Batal hapus");
-      await renderPanel(ctx, {
-        confirmRemove: false,
-        output: `Batal hapus app "${appName}".`,
-        outputIsHtml: false
-      });
-      return;
-    }
-
-    if (action === "rmkeep" || action === "rmfiles") {
-      await answerCallback(ctx, "Menghapus app...");
-      const deleteFiles = action === "rmfiles";
-      await withAppLock(appName, async () => {
-        await removeAppInternal(appName, { deleteFiles, force: true });
-      });
-      await renderPanel(ctx, {
-        selectedApp: null,
-        confirmRemove: false,
-        output: `App "${appName}" dihapus.${deleteFiles ? " File deployment + logs ikut dihapus." : ""}`,
-        outputIsHtml: false
-      });
-      return;
-    }
-
-    if (action === "start") {
-      await answerCallback(ctx, "Start diproses...");
-      let output = "";
-      await withAppLock(appName, async () => {
-        const pid = await processManager.start(appName);
-        output = `App "${appName}" jalan. PID: ${pid}`;
-      });
-      await renderPanel(ctx, {
-        output,
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
-
-    if (action === "stop") {
-      await answerCallback(ctx, "Stop diproses...");
-      let output = "";
-      await withAppLock(appName, async () => {
-        const result = await processManager.stop(appName);
-        output = result.alreadyStopped ? `App "${appName}" sudah berhenti.` : `App "${appName}" dihentikan.`;
-      });
-      await renderPanel(ctx, {
-        output,
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
-
-    if (action === "restart") {
-      await answerCallback(ctx, "Restart diproses...");
-      let output = "";
-      await withAppLock(appName, async () => {
-        const pid = await processManager.restart(appName);
-        output = `App "${appName}" restart sukses. PID: ${pid}`;
-      });
-      await renderPanel(ctx, {
-        output,
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
-
-    if (action === "deploy") {
-      await answerCallback(ctx, "Deploy diproses...");
-      let output = "";
-      await withAppLock(appName, async () => {
-        const summary = await deployer.deploy(appName);
-        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
-        output = [`Deploy "${appName}" selesai.`, detail ? clip(detail, 2200) : ""].filter(Boolean).join("\n\n");
-      });
-      await renderPanel(ctx, {
-        output,
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
-
-    if (action === "deployr") {
-      await answerCallback(ctx, "Deploy + restart diproses...");
-      let output = "";
-      await withAppLock(appName, async () => {
-        const summary = await deployer.deploy(appName);
-        const pid = await processManager.restart(appName);
-        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
-        output = [
-          `Deploy + restart "${appName}" selesai. PID baru: ${pid}`,
-          detail ? clip(detail, 2200) : ""
-        ].filter(Boolean).join("\n\n");
-      });
-      await renderPanel(ctx, {
-        output,
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
-
-    if (action === "update") {
-      await answerCallback(ctx, "Update diproses...");
-      let output = "";
-      await withAppLock(appName, async () => {
+      if (action === "status") {
+        await answerCallback(ctx, "Status updated");
         const app = db.getApp(appName);
-        if (!app) {
-          throw new Error(`App "${appName}" tidak ditemukan.`);
-        }
-        const runtime = app.runtime || {};
-        const wasRunning = runtime.status === "running" && runtime.pid;
-        if (wasRunning) {
-          await processManager.stop(appName);
-        }
-        const summary = await deployer.deploy(appName, { updateOnly: true });
-        let runMessage = "App tetap dalam kondisi stop (status awal tidak running).";
-        if (wasRunning) {
-          const pid = await processManager.start(appName);
-          runMessage = `App dijalankan kembali. PID: ${pid}`;
-        }
-        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
-        output = [`Update "${appName}" selesai.`, runMessage, detail ? clip(detail, 2000) : ""]
-          .filter(Boolean)
-          .join("\n\n");
-      });
-      await renderPanel(ctx, {
-        output,
-        outputIsHtml: false,
-        confirmRemove: false
-      });
-      return;
-    }
+        const runtime = (app && app.runtime) || {};
+        const statusText = [
+          `App: ${appName}`,
+          `status: ${runtime.status || "stopped"}`,
+          `pid: ${runtime.pid || "-"}`,
+          `lastStartAt: ${runtime.lastStartAt || "-"}`,
+          `lastStopAt: ${runtime.lastStopAt || "-"}`,
+          `lastExitCode: ${runtime.lastExitCode ?? "-"}`
+        ].join("\n");
+        await renderPanel(ctx, {
+          output: statusText,
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
 
-    await answerCallback(ctx, "Aksi tidak dikenal");
-  } catch (err) {
+      if (action === "vars") {
+        await answerCallback(ctx);
+        const app = db.getApp(appName);
+        const entries = Object.entries((app && app.env) || {});
+        const text = entries.length > 0 ? entries.map(([k, v]) => `${k}=${v}`).join("\n") : "Belum ada env var.";
+        await renderPanel(ctx, {
+          output: `App: ${appName}\n${text}`,
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
+
+      if (action === "log80" || action === "log200") {
+        await answerCallback(ctx, "Loading logs...");
+        const lines = action === "log200" ? 200 : 80;
+        const logs = processManager.readLogs(appName, lines);
+        const text = [
+          `App: ${appName}`,
+          `stdout (${lines} lines):`,
+          logs.out || "(kosong)",
+          "",
+          `stderr (${lines} lines):`,
+          logs.err || "(kosong)"
+        ].join("\n");
+        await renderPanel(ctx, {
+          output: clip(text, 2600),
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
+
+      if (action === "remove") {
+        await answerCallback(ctx);
+        await renderPanel(ctx, {
+          confirmRemove: true,
+          output: `Konfirmasi hapus app "${appName}". Pilih tombol confirm di bawah.`,
+          outputIsHtml: false
+        });
+        return;
+      }
+
+      if (action === "rmcancel") {
+        await answerCallback(ctx, "Batal hapus");
+        await renderPanel(ctx, {
+          confirmRemove: false,
+          output: `Batal hapus app "${appName}".`,
+          outputIsHtml: false
+        });
+        return;
+      }
+
+      if (action === "rmkeep" || action === "rmfiles") {
+        await answerCallback(ctx, "Menghapus app...");
+        const deleteFiles = action === "rmfiles";
+        await withAppLock(appName, async () => {
+          await removeAppInternal(appName, { deleteFiles, force: true });
+        });
+        await renderPanel(ctx, {
+          selectedApp: null,
+          confirmRemove: false,
+          output: `App "${appName}" dihapus.${deleteFiles ? " File deployment + logs ikut dihapus." : ""}`,
+          outputIsHtml: false
+        });
+        return;
+      }
+
+      if (action === "start") {
+        await answerCallback(ctx, "Start diproses...");
+        let output = "";
+        await withAppLock(appName, async () => {
+          const pid = await processManager.start(appName);
+          output = `App "${appName}" jalan. PID: ${pid}`;
+        });
+        await renderPanel(ctx, {
+          output,
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
+
+      if (action === "stop") {
+        await answerCallback(ctx, "Stop diproses...");
+        let output = "";
+        await withAppLock(appName, async () => {
+          const result = await processManager.stop(appName);
+          output = result.alreadyStopped ? `App "${appName}" sudah berhenti.` : `App "${appName}" dihentikan.`;
+        });
+        await renderPanel(ctx, {
+          output,
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
+
+      if (action === "restart") {
+        await answerCallback(ctx, "Restart diproses...");
+        let output = "";
+        await withAppLock(appName, async () => {
+          const pid = await processManager.restart(appName);
+          output = `App "${appName}" restart sukses. PID: ${pid}`;
+        });
+        await renderPanel(ctx, {
+          output,
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
+
+      if (action === "deploy") {
+        await answerCallback(ctx, "Deploy diproses...");
+        let output = "";
+        await withAppLock(appName, async () => {
+          const summary = await deployer.deploy(appName);
+          const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+          output = [`Deploy "${appName}" selesai.`, detail ? clip(detail, 2200) : ""].filter(Boolean).join("\n\n");
+        });
+        await renderPanel(ctx, {
+          output,
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
+
+      if (action === "deployr") {
+        await answerCallback(ctx, "Deploy + restart diproses...");
+        let output = "";
+        await withAppLock(appName, async () => {
+          const summary = await deployer.deploy(appName);
+          const pid = await processManager.restart(appName);
+          const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+          output = [
+            `Deploy + restart "${appName}" selesai. PID baru: ${pid}`,
+            detail ? clip(detail, 2200) : ""
+          ].filter(Boolean).join("\n\n");
+        });
+        await renderPanel(ctx, {
+          output,
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
+
+      if (action === "update") {
+        await answerCallback(ctx, "Update diproses...");
+        let output = "";
+        await withAppLock(appName, async () => {
+          const app = db.getApp(appName);
+          if (!app) {
+            throw new Error(`App "${appName}" tidak ditemukan.`);
+          }
+          const runtime = app.runtime || {};
+          const wasRunning = runtime.status === "running" && runtime.pid;
+          if (wasRunning) {
+            await processManager.stop(appName);
+          }
+          const summary = await deployer.deploy(appName, { updateOnly: true });
+          let runMessage = "App tetap dalam kondisi stop (status awal tidak running).";
+          if (wasRunning) {
+            const pid = await processManager.start(appName);
+            runMessage = `App dijalankan kembali. PID: ${pid}`;
+          }
+          const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+          output = [`Update "${appName}" selesai.`, runMessage, detail ? clip(detail, 2000) : ""]
+            .filter(Boolean)
+            .join("\n\n");
+        });
+        await renderPanel(ctx, {
+          output,
+          outputIsHtml: false,
+          confirmRemove: false
+        });
+        return;
+      }
+
+      await answerCallback(ctx, "Aksi tidak dikenal");
+    } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await answerCallback(ctx, "Gagal");
       await renderPanel(ctx, {
