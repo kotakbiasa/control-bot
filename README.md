@@ -58,6 +58,23 @@ npm start
 
 Bot akan berjalan via long-polling.
 
+### Script Install + Jalankan Otomatis
+
+Sekali jalan:
+```bash
+bash scripts/install-and-run.sh --bot-token "ISI_BOT_TOKEN" --admin-ids "123456789"
+```
+
+Mode background:
+```bash
+bash scripts/install-and-run.sh --background
+```
+
+Output background:
+- PID file: `data/control-bot.pid`
+- stdout log: `logs/control-bot.stdout.log`
+- stderr log: `logs/control-bot.stderr.log`
+
 ## Command Lengkap
 
 - `/panel` (menu inline)
