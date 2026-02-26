@@ -70,6 +70,8 @@ function panelText(state, deps) {
         const dbSettings = db.getSettings();
         const dynamicAdminsCount = (dbSettings.admins || []).length;
         const totalAdmins = ADMIN_IDS.length + dynamicAdminsCount;
+        const monitorSchedule = dbSettings.monitorSchedule || "off";
+        const diskThreshold = dbSettings.diskAlertThreshold || 85;
 
         lines.push(
             "⚙️ <b>Pengaturan Bot (Global)</b>",
@@ -78,6 +80,8 @@ function panelText(state, deps) {
             `<b>Node.js:</b> ${escapeHtml(process.version)}`,
             `<b>Bot Uptime:</b> ${escapeHtml(formatUptime(process.uptime()))}`,
             `<b>Total Admin:</b> ${totalAdmins} (${ADMIN_IDS.length} from .env, ${dynamicAdminsCount} from DB)`,
+            `<b>Monitor:</b> <code>${escapeHtml(monitorSchedule)}</code>`,
+            `<b>Disk Alert:</b> ${diskThreshold}%`,
             "</blockquote>",
             "",
             "Pilih menu di bawah ini untuk mengatur bot:"
@@ -145,6 +149,13 @@ function panelKeyboard(state, deps) {
         rows.push([
             { text: "➕ Tambah Admin", callback_data: "panel:bot:addadmin" },
             { text: "➖ Hapus Admin", callback_data: "panel:bot:deladmin" }
+        ]);
+        rows.push([
+            { text: "📊 Set Monitor", callback_data: "panel:bot:setmonitor" },
+            { text: "📈 Disk Alert", callback_data: "panel:bot:setdiskalert" }
+        ]);
+        rows.push([
+            { text: "📋 Report Sekarang", callback_data: "panel:bot:report" }
         ]);
         rows.push([
             { text: "🤖 Update Bot", callback_data: "panel:bot:update" },

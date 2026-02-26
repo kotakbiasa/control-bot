@@ -54,6 +54,76 @@ function register(bot, deps) {
         await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
     });
 
+    bot.action("panel:bot:setmonitor", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        if (!chatId) return;
+        const settings = db.getSettings();
+        const current = settings.monitorSchedule || "off";
+        const text = `📊 <b>Pengaturan Monitoring</b>\n\nInterval monitoring saat ini: <code>${escapeHtml(current)}</code>\n\nPilih interval di bawah, atau balas dengan cron manual:`;
+        chatInputState.set(chatId, { step: "SET_MONITOR", data: {}, originalMessageId: ctx.callbackQuery.message?.message_id });
+        await ctx.reply(text, {
+            parse_mode: "HTML", reply_markup: {
+                inline_keyboard: [
+                    [{ text: "⏰ Tiap 1 Jam", callback_data: "panel:monitor:0 * * * *" }, { text: "🕕 Tiap 6 Jam", callback_data: "panel:monitor:0 */6 * * *" }],
+                    [{ text: "🕛 Tiap 12 Jam", callback_data: "panel:monitor:0 */12 * * *" }, { text: "📅 Tiap 24 Jam", callback_data: "panel:monitor:0 0 * * *" }],
+                    [{ text: "✖️ Matikan", callback_data: "panel:monitor:off" }, { text: "Cancel ❌", callback_data: "panel:cancel_input" }]
+                ]
+            }
+        });
+    });
+
+    bot.action(/^panel:monitor:(.+)$/, async (ctx) => {
+        const val = ctx.match[1].trim();
+        const chatId = getChatIdFromCtx(ctx);
+        chatInputState.delete(chatId);
+        const schedule = (val === "off" || val === "mati") ? null : val;
+        await db.updateSettings({ monitorSchedule: schedule });
+        const { monitor } = deps;
+        monitor.setSchedule(schedule);
+        const output = schedule
+            ? `✅ Monitoring diatur ke <code>${escapeHtml(schedule)}</code>`
+            : "✅ Monitoring dimatikan.";
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
+    bot.action("panel:bot:setdiskalert", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        if (!chatId) return;
+        const settings = db.getSettings();
+        const current = settings.diskAlertThreshold || 85;
+        const text = `📈 <b>Disk Space Alert</b>\n\nThreshold saat ini: <b>${current}%</b>\n\nPilih threshold baru:`;
+        await ctx.reply(text, {
+            parse_mode: "HTML", reply_markup: {
+                inline_keyboard: [
+                    [{ text: "70%", callback_data: "panel:diskalert:70" }, { text: "80%", callback_data: "panel:diskalert:80" }, { text: "85%", callback_data: "panel:diskalert:85" }],
+                    [{ text: "90%", callback_data: "panel:diskalert:90" }, { text: "95%", callback_data: "panel:diskalert:95" }],
+                    [{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]
+                ]
+            }
+        });
+    });
+
+    bot.action(/^panel:diskalert:(\d+)$/, async (ctx) => {
+        const threshold = parseInt(ctx.match[1], 10);
+        const chatId = getChatIdFromCtx(ctx);
+        await db.updateSettings({ diskAlertThreshold: threshold });
+        const output = `✅ Disk alert threshold diatur ke <b>${threshold}%</b>`;
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
+    bot.action("panel:bot:report", async (ctx) => {
+        await answerCallback(ctx, "Generating report...");
+        const { monitor } = deps;
+        const report = await monitor.getReport();
+        const chatId = getChatIdFromCtx(ctx);
+        setPanelState(chatId, { output: report, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
     bot.action("panel:bot:update", async (ctx) => {
         await answerCallback(ctx, "Updating bot...");
         try {

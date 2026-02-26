@@ -249,6 +249,22 @@ function register(bot, deps) {
                 return;
             }
 
+            if (step === "SET_MONITOR") {
+                const val = text.trim();
+                const schedule = (val.toLowerCase() === "off" || val.toLowerCase() === "mati") ? null : val;
+                await db.updateSettings({ monitorSchedule: schedule });
+                const { monitor } = deps;
+                monitor.setSchedule(schedule);
+                chatInputState.delete(chatId);
+                const output = schedule
+                    ? `✅ Monitoring diatur ke <code>${escapeHtml(schedule)}</code>`
+                    : "✅ Monitoring dimatikan.";
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
             if (step === "DEL_ENV") {
                 const key = text.trim();
                 await db.upsertApp(data.name, (existing) => { const env = { ...(existing.env || {}) }; delete env[key]; return { ...existing, env, updatedAt: nowIso() }; });

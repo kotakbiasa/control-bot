@@ -6,6 +6,7 @@ const { Telegraf } = require("telegraf");
 const { JsonDb } = require("./db");
 const { Deployer } = require("./deployer");
 const { ProcessManager } = require("./processManager");
+const { Monitor } = require("./services/monitor");
 const { ensureDir, escapeHtml, withinDir } = require("./utils");
 
 // --- Directories ---
@@ -66,18 +67,41 @@ async function withAppLock(appName, fn) {
   finally { busyApps.delete(appName); }
 }
 
-// --- Crash alert ---
+// --- Crash alert with log streaming ---
 processManager.on("crash", async (appName) => {
-  const msg = `⚠️ <b>CRASH ALERT</b> ⚠️\nApp <b>${escapeHtml(appName)}</b> telah mati secara paksa atau berhenti karena error (crash)!\n\nSilakan buka /panel dan periksa "Logs" untuk melihat penyebabnya.`;
-  for (const adminId of ADMIN_IDS) {
+  // Read last 30 lines of logs for context
+  const logs = processManager.readLogs(appName, 30);
+  const logSnippet = [];
+  if (logs.err && logs.err.trim()) {
+    logSnippet.push("<b>stderr (last 30 lines):</b>", `<pre>${escapeHtml(logs.err.slice(-1500))}</pre>`);
+  } else if (logs.out && logs.out.trim()) {
+    logSnippet.push("<b>stdout (last 30 lines):</b>", `<pre>${escapeHtml(logs.out.slice(-1500))}</pre>`);
+  }
+
+  const msg = [
+    `⚠️ <b>CRASH ALERT</b> ⚠️`,
+    `App <b>${escapeHtml(appName)}</b> telah mati secara paksa atau berhenti karena error (crash)!`,
+    "",
+    ...logSnippet,
+    "",
+    'Silakan buka /panel dan periksa "Logs" untuk detail selengkapnya.'
+  ].join("\n");
+
+  const allAdmins = [...ADMIN_IDS];
+  const dbSettings = db.getSettings();
+  if (dbSettings.admins) { for (const id of dbSettings.admins) { if (!allAdmins.includes(id)) allAdmins.push(id); } }
+  for (const adminId of allAdmins) {
     try { await bot.telegram.sendMessage(adminId, msg, { parse_mode: "HTML" }); }
     catch (err) { console.error(`Gagal mengirim crash alert ke admin ${adminId}:`, err); }
   }
 });
 
+// --- Monitor (initialized after bot is created, but cron starts after launch) ---
+const monitor = new Monitor({ db, bot, ADMIN_IDS });
+
 // --- Shared deps for all handlers ---
 const deps = {
-  db, bot, processManager, deployer,
+  db, bot, processManager, deployer, monitor,
   ADMIN_IDS, ROOT_DIR, DATA_DIR, DB_PATH, DEPLOYMENTS_DIR, LOGS_DIR,
   chatInputState, busyApps,
   isAdmin, withAppLock, withinDir
