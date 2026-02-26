@@ -1,0 +1,27 @@
+[Unit]
+Description=Telegram Deploy Control Bot
+After=network.target
+
+[Service]
+# Ganti dengan username VPS Anda (misalnya: root, ubuntu, debian)
+User=root
+
+# Ganti dengan direktori tempat Anda menaruh (clone) bot ini di VPS
+WorkingDirectory=/root/control-bot
+
+# Menjalankan bot (pastikan path nodejs sesuai. Jalankan 'which node' di VPS jika ragu)
+ExecStart=/usr/bin/node src/index.js
+
+# Environment variables dasar (bisa juga meload dari file .env)
+Environment="NODE_ENV=production"
+
+# Restart otomatis jika bot crash atau melakukan self-restart (process.exit(0))
+Restart=always
+RestartSec=3
+
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=control-bot
+
+[Install]
+WantedBy=multi-user.target
