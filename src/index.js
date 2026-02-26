@@ -46,10 +46,62 @@ const processManager = new ProcessManager({ db, logsDir: LOGS_DIR });
 const deployer = new Deployer({ db, deploymentsDir: DEPLOYMENTS_DIR });
 const bot = new Telegraf(BOT_TOKEN);
 const busyApps = new Set();
+const panelStateByChat = new Map();
 
 function clip(text = "", max = 3500) {
   if (text.length <= max) return text;
   return `[dipotong, tampil ${max} char terakhir]\n${text.slice(-max)}`;
+}
+
+function getChatIdFromCtx(ctx) {
+  if (ctx.chat && typeof ctx.chat.id !== "undefined") {
+    return String(ctx.chat.id);
+  }
+  const cbMessage = ctx.callbackQuery && ctx.callbackQuery.message ? ctx.callbackQuery.message : null;
+  if (cbMessage && cbMessage.chat && typeof cbMessage.chat.id !== "undefined") {
+    return String(cbMessage.chat.id);
+  }
+  return null;
+}
+
+function basePanelState() {
+  return {
+    selectedApp: null,
+    output: "",
+    outputIsHtml: false,
+    confirmRemove: false,
+    updatedAt: nowIso()
+  };
+}
+
+function getPanelState(chatId) {
+  const existing = panelStateByChat.get(chatId);
+  if (existing) return existing;
+  const initial = basePanelState();
+  panelStateByChat.set(chatId, initial);
+  return initial;
+}
+
+function syncPanelStateWithApps(state) {
+  const apps = db.getApps();
+  const names = Object.keys(apps).sort();
+  const selectedApp = state.selectedApp && apps[state.selectedApp] ? state.selectedApp : names[0] || null;
+  return {
+    ...state,
+    selectedApp
+  };
+}
+
+function setPanelState(chatId, patch = {}) {
+  const current = syncPanelStateWithApps(getPanelState(chatId));
+  const merged = {
+    ...current,
+    ...patch,
+    updatedAt: nowIso()
+  };
+  const synced = syncPanelStateWithApps(merged);
+  panelStateByChat.set(chatId, synced);
+  return synced;
 }
 
 function adminOnly(ctx, next) {
@@ -267,111 +319,111 @@ function appRuntime(app) {
   };
 }
 
-function panelText() {
-  const apps = db.getApps();
-  const names = Object.keys(apps);
-  const running = names.filter((name) => appRuntime(apps[name]).status === "running").length;
-  return [
-    "<b>Control Panel</b>",
-    `Total app: ${names.length}`,
-    `Running: ${running}`,
-    "",
-    "Pilih app di bawah untuk kontrol."
-  ].join("\n");
-}
-
-function panelKeyboard() {
+function panelText(state) {
+  const synced = syncPanelStateWithApps(state);
   const apps = db.getApps();
   const names = Object.keys(apps).sort();
-  const rows = [[{ text: "VPS Info", callback_data: "panel:vps" }]];
-  rows.push(
-    ...names.map((name) => {
-      const runtime = appRuntime(apps[name]);
-      return [
-        {
-          text: `${name} [${runtime.status}]`,
-          callback_data: `panel:app:${callbackAppName(name)}`
-        }
-      ];
-    })
-  );
+  const running = names.filter((name) => appRuntime(apps[name]).status === "running").length;
+  const selectedName = synced.selectedApp;
+  const selectedApp = selectedName ? apps[selectedName] : null;
 
-  rows.push([
-    {
-      text: "Refresh",
-      callback_data: "panel:refresh"
+  const lines = [
+    "<b>Control Panel (Single Message)</b>",
+    `Total app: ${names.length}`,
+    `Running: ${running}`,
+    `Selected: ${escapeHtml(selectedName || "-")}`
+  ];
+
+  if (!selectedApp) {
+    lines.push("", "Belum ada app terdaftar.");
+    lines.push("Klik <b>Setup</b> lalu jalankan command add app.");
+  } else {
+    const runtime = selectedApp.runtime || {};
+    lines.push(
+      "",
+      "<b>App Detail</b>",
+      `status: <b>${escapeHtml(runtime.status || "stopped")}</b>`,
+      `pid: ${escapeHtml(String(runtime.pid || "-"))}`,
+      `branch: ${escapeHtml(selectedApp.branch || "-")}`,
+      `repo: <code>${escapeHtml(selectedApp.repo || "-")}</code>`,
+      `lastDeployAt: ${escapeHtml(selectedApp.lastDeployAt || "-")}`
+    );
+  }
+
+  if (synced.output && synced.output.trim()) {
+    lines.push("", "<b>Output</b>");
+    if (synced.outputIsHtml) {
+      lines.push(synced.output);
+    } else {
+      lines.push(`<pre>${escapeHtml(clip(synced.output, 1700))}</pre>`);
     }
-  ]);
+  } else {
+    lines.push("", "Gunakan tombol aksi di bawah.");
+  }
 
+  if (synced.confirmRemove && selectedName) {
+    lines.push("", `<b>Konfirmasi hapus app:</b> ${escapeHtml(selectedName)}`);
+  }
+
+  return lines.join("\n");
+}
+
+function panelKeyboard(state) {
+  const synced = syncPanelStateWithApps(state);
+  const apps = db.getApps();
+  const names = Object.keys(apps).sort();
+  const rows = [
+    [
+      { text: "Refresh", callback_data: "panel:refresh" },
+      { text: "VPS", callback_data: "panel:vps" },
+      { text: "Setup", callback_data: "panel:setup" }
+    ]
+  ];
+
+  for (let i = 0; i < names.length; i += 2) {
+    const chunk = names.slice(i, i + 2).map((name) => {
+      const runtime = appRuntime(apps[name]);
+      const selected = name === synced.selectedApp ? "✅ " : "";
+      return {
+        text: `${selected}${name} [${runtime.status}]`,
+        callback_data: `panel:sel:${callbackAppName(name)}`
+      };
+    });
+    rows.push(chunk);
+  }
+
+  if (synced.selectedApp && apps[synced.selectedApp]) {
+    rows.push([
+      { text: "Status", callback_data: "panel:run:status" },
+      { text: "Vars", callback_data: "panel:run:vars" },
+      { text: "Logs 80", callback_data: "panel:run:log80" },
+      { text: "Logs 200", callback_data: "panel:run:log200" }
+    ]);
+    rows.push([
+      { text: "Start", callback_data: "panel:run:start" },
+      { text: "Stop", callback_data: "panel:run:stop" },
+      { text: "Restart", callback_data: "panel:run:restart" }
+    ]);
+    rows.push([
+      { text: "Deploy", callback_data: "panel:run:deploy" },
+      { text: "Deploy+Restart", callback_data: "panel:run:deployr" },
+      { text: "Update", callback_data: "panel:run:update" }
+    ]);
+
+    if (synced.confirmRemove) {
+      rows.push([
+        { text: "Confirm Remove DB", callback_data: "panel:run:rmkeep" },
+        { text: "Confirm Remove Files", callback_data: "panel:run:rmfiles" }
+      ]);
+      rows.push([{ text: "Cancel Remove", callback_data: "panel:run:rmcancel" }]);
+    } else {
+      rows.push([{ text: "Remove", callback_data: "panel:run:remove" }]);
+    }
+  }
+
+  rows.push([{ text: "Clear Output", callback_data: "panel:clear" }]);
   return {
     inline_keyboard: rows
-  };
-}
-
-function vpsKeyboard() {
-  return {
-    inline_keyboard: [[{ text: "Refresh VPS", callback_data: "panel:vps" }, { text: "Back", callback_data: "panel:home" }]]
-  };
-}
-
-function appText(name, app) {
-  const runtime = app.runtime || {};
-  return [
-    `<b>App: ${escapeHtml(name)}</b>`,
-    `status: <b>${escapeHtml(runtime.status || "stopped")}</b>`,
-    `pid: ${escapeHtml(String(runtime.pid || "-"))}`,
-    `branch: ${escapeHtml(app.branch || "-")}`,
-    `repo: <code>${escapeHtml(app.repo || "-")}</code>`,
-    `lastDeployAt: ${escapeHtml(app.lastDeployAt || "-")}`,
-    "",
-    "Pilih aksi:"
-  ].join("\n");
-}
-
-function appKeyboard(name) {
-  const encoded = callbackAppName(name);
-  return {
-    inline_keyboard: [
-      [
-        { text: "Status", callback_data: `panel:act:status:${encoded}` },
-        { text: "Vars", callback_data: `panel:act:vars:${encoded}` }
-      ],
-      [
-        { text: "Start", callback_data: `panel:act:start:${encoded}` },
-        { text: "Stop", callback_data: `panel:act:stop:${encoded}` },
-        { text: "Restart", callback_data: `panel:act:restart:${encoded}` }
-      ],
-      [
-        { text: "Deploy", callback_data: `panel:act:deploy:${encoded}` },
-        { text: "Deploy + Restart", callback_data: `panel:act:deployr:${encoded}` }
-      ],
-      [
-        { text: "Update", callback_data: `panel:act:update:${encoded}` },
-        { text: "Logs 80", callback_data: `panel:act:log80:${encoded}` },
-        { text: "Logs 200", callback_data: `panel:act:log200:${encoded}` }
-      ],
-      [
-        { text: "Remove", callback_data: `panel:act:rmask:${encoded}` }
-      ],
-      [
-        { text: "VPS", callback_data: "panel:vps" },
-        { text: "Back", callback_data: "panel:home" },
-        { text: "Refresh", callback_data: `panel:act:status:${encoded}` }
-      ]
-    ]
-  };
-}
-
-function appDeleteKeyboard(name) {
-  const encoded = callbackAppName(name);
-  return {
-    inline_keyboard: [
-      [
-        { text: "Hapus DB saja", callback_data: `panel:rm:keep:${encoded}` },
-        { text: "Hapus DB + files", callback_data: `panel:rm:files:${encoded}` }
-      ],
-      [{ text: "Batal", callback_data: `panel:rm:cancel:${encoded}` }]
-    ]
   };
 }
 
@@ -408,22 +460,23 @@ async function editOrReply(ctx, text, replyMarkup) {
   await ctx.reply(text, payload);
 }
 
-async function showPanel(ctx) {
-  await editOrReply(ctx, panelText(), panelKeyboard());
-}
-
-async function showVpsPanel(ctx) {
-  const text = await buildVpsInfoText();
-  await editOrReply(ctx, text, vpsKeyboard());
-}
-
-async function showAppPanel(ctx, name) {
-  const app = db.getApp(name);
-  if (!app) {
-    await showPanel(ctx);
+async function renderPanel(ctx, patch = {}) {
+  const chatId = getChatIdFromCtx(ctx);
+  if (!chatId) {
+    await ctx.reply("Tidak bisa membaca chat ID untuk panel.");
     return;
   }
-  await editOrReply(ctx, appText(name, app), appKeyboard(name));
+  const state = setPanelState(chatId, patch);
+  await editOrReply(ctx, panelText(state), panelKeyboard(state));
+}
+
+function selectedAppFromState(chatId) {
+  const state = setPanelState(chatId);
+  const name = state.selectedApp;
+  if (!name) return null;
+  const app = db.getApp(name);
+  if (!app) return null;
+  return { name, app };
 }
 
 async function showVarsMessage(ctx, name) {
@@ -542,7 +595,11 @@ bot.command("help", async (ctx) => {
 });
 
 bot.command("panel", async (ctx) => {
-  await showPanel(ctx);
+  await renderPanel(ctx, {
+    output: "",
+    outputIsHtml: false,
+    confirmRemove: false
+  });
 });
 
 bot.command("vps", async (ctx) => {
@@ -1061,219 +1118,316 @@ bot.command("removeapp", async (ctx) => {
 
 bot.action("panel:home", async (ctx) => {
   await answerCallback(ctx);
-  await showPanel(ctx);
+  await renderPanel(ctx, { confirmRemove: false });
 });
 
 bot.action("panel:refresh", async (ctx) => {
   await answerCallback(ctx, "Refreshed");
-  await showPanel(ctx);
+  await renderPanel(ctx, { confirmRemove: false });
+});
+
+bot.action("panel:clear", async (ctx) => {
+  await answerCallback(ctx, "Output cleared");
+  await renderPanel(ctx, {
+    output: "",
+    outputIsHtml: false,
+    confirmRemove: false
+  });
 });
 
 bot.action("panel:vps", async (ctx) => {
   await answerCallback(ctx, "Loading VPS info...");
-  await showVpsPanel(ctx);
+  const info = await buildVpsInfoText();
+  await renderPanel(ctx, {
+    output: info,
+    outputIsHtml: true,
+    confirmRemove: false
+  });
 });
 
+bot.action("panel:setup", async (ctx) => {
+  await answerCallback(ctx);
+  await renderPanel(ctx, {
+    output: [
+      "<b>Setup App Baru</b>",
+      "1) Tambah app:",
+      "<code>/addapp namabot https://github.com/user/repo.git main</code>",
+      "",
+      "2) (Opsional) set command:",
+      "<code>/setcmd namabot install npm ci</code>",
+      "<code>/setcmd namabot build npm run build</code>",
+      "<code>/setcmd namabot start npm run start</code>",
+      "",
+      "3) Deploy + jalankan:",
+      "<code>/deploy namabot</code>",
+      "<code>/start namabot</code>",
+      "",
+      "Setelah app ditambahkan, pilih app di tombol panel lalu jalankan aksi."
+    ].join("\n"),
+    outputIsHtml: true,
+    confirmRemove: false
+  });
+});
+
+bot.action(/^panel:sel:(.+)$/, async (ctx) => {
+  const appName = parseCallbackAppName(ctx.match[1]);
+  await answerCallback(ctx);
+  await renderPanel(ctx, {
+    selectedApp: appName,
+    confirmRemove: false
+  });
+});
+
+// Backward compatibility for old panel messages
 bot.action(/^panel:app:(.+)$/, async (ctx) => {
   const appName = parseCallbackAppName(ctx.match[1]);
   await answerCallback(ctx);
-  await showAppPanel(ctx, appName);
+  await renderPanel(ctx, {
+    selectedApp: appName,
+    confirmRemove: false
+  });
 });
 
-bot.action(/^panel:act:([a-z0-9_]+):(.+)$/, async (ctx) => {
-  const action = ctx.match[1];
-  const appName = parseCallbackAppName(ctx.match[2]);
-
+bot.action(
+  /^panel:run:(status|vars|log80|log200|start|stop|restart|deploy|deployr|update|remove|rmkeep|rmfiles|rmcancel)$/,
+  async (ctx) => {
+    const action = ctx.match[1];
   try {
-    if (!db.getApp(appName)) {
-      await answerCallback(ctx, "App tidak ditemukan");
-      await showPanel(ctx);
+    const chatId = getChatIdFromCtx(ctx);
+    if (!chatId) {
+      await answerCallback(ctx, "Chat tidak valid");
       return;
     }
 
+    const selected = selectedAppFromState(chatId);
+    if (!selected) {
+      await answerCallback(ctx, "Belum ada app");
+      await renderPanel(ctx, {
+        output: [
+          "<b>Belum ada app</b>",
+          "Tambahkan app dulu dengan:",
+          "<code>/addapp namabot https://github.com/user/repo.git main</code>"
+        ].join("\n"),
+        outputIsHtml: true
+      });
+      return;
+    }
+
+    const appName = selected.name;
+
     if (action === "status") {
-      await answerCallback(ctx, "Status diperbarui");
-      await showAppPanel(ctx, appName);
+      await answerCallback(ctx, "Status updated");
+      const app = db.getApp(appName);
+      const runtime = (app && app.runtime) || {};
+      const statusText = [
+        `App: ${appName}`,
+        `status: ${runtime.status || "stopped"}`,
+        `pid: ${runtime.pid || "-"}`,
+        `lastStartAt: ${runtime.lastStartAt || "-"}`,
+        `lastStopAt: ${runtime.lastStopAt || "-"}`,
+        `lastExitCode: ${runtime.lastExitCode ?? "-"}`
+      ].join("\n");
+      await renderPanel(ctx, {
+        output: statusText,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
     if (action === "vars") {
       await answerCallback(ctx);
-      await showVarsMessage(ctx, appName);
-      await showAppPanel(ctx, appName);
+      const app = db.getApp(appName);
+      const entries = Object.entries((app && app.env) || {});
+      const text = entries.length > 0 ? entries.map(([k, v]) => `${k}=${v}`).join("\n") : "Belum ada env var.";
+      await renderPanel(ctx, {
+        output: `App: ${appName}\n${text}`,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
-    if (action === "log80") {
-      await answerCallback(ctx);
-      await showLogsMessage(ctx, appName, 80);
-      await showAppPanel(ctx, appName);
+    if (action === "log80" || action === "log200") {
+      await answerCallback(ctx, "Loading logs...");
+      const lines = action === "log200" ? 200 : 80;
+      const logs = processManager.readLogs(appName, lines);
+      const text = [
+        `App: ${appName}`,
+        `stdout (${lines} lines):`,
+        logs.out || "(kosong)",
+        "",
+        `stderr (${lines} lines):`,
+        logs.err || "(kosong)"
+      ].join("\n");
+      await renderPanel(ctx, {
+        output: clip(text, 2600),
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
-    if (action === "log200") {
+    if (action === "remove") {
       await answerCallback(ctx);
-      await showLogsMessage(ctx, appName, 200);
-      await showAppPanel(ctx, appName);
+      await renderPanel(ctx, {
+        confirmRemove: true,
+        output: `Konfirmasi hapus app "${appName}". Pilih tombol confirm di bawah.`,
+        outputIsHtml: false
+      });
       return;
     }
 
-    if (action === "rmask") {
-      await answerCallback(ctx);
-      await editOrReply(
-        ctx,
-        [
-          "<b>Konfirmasi Hapus App</b>",
-          `app: <b>${escapeHtml(appName)}</b>`,
-          "",
-          "Jika app sedang berjalan, proses akan dihentikan otomatis."
-        ].join("\n"),
-        appDeleteKeyboard(appName)
-      );
+    if (action === "rmcancel") {
+      await answerCallback(ctx, "Batal hapus");
+      await renderPanel(ctx, {
+        confirmRemove: false,
+        output: `Batal hapus app "${appName}".`,
+        outputIsHtml: false
+      });
+      return;
+    }
+
+    if (action === "rmkeep" || action === "rmfiles") {
+      await answerCallback(ctx, "Menghapus app...");
+      const deleteFiles = action === "rmfiles";
+      await withAppLock(appName, async () => {
+        await removeAppInternal(appName, { deleteFiles, force: true });
+      });
+      await renderPanel(ctx, {
+        selectedApp: null,
+        confirmRemove: false,
+        output: `App "${appName}" dihapus.${deleteFiles ? " File deployment + logs ikut dihapus." : ""}`,
+        outputIsHtml: false
+      });
       return;
     }
 
     if (action === "start") {
       await answerCallback(ctx, "Start diproses...");
+      let output = "";
       await withAppLock(appName, async () => {
         const pid = await processManager.start(appName);
-        await ctx.reply(`App "${appName}" jalan. PID: ${pid}`);
+        output = `App "${appName}" jalan. PID: ${pid}`;
       });
-      await showAppPanel(ctx, appName);
+      await renderPanel(ctx, {
+        output,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
     if (action === "stop") {
       await answerCallback(ctx, "Stop diproses...");
+      let output = "";
       await withAppLock(appName, async () => {
         const result = await processManager.stop(appName);
-        if (result.alreadyStopped) {
-          await ctx.reply(`App "${appName}" sudah berhenti.`);
-        } else {
-          await ctx.reply(`App "${appName}" dihentikan.`);
-        }
+        output = result.alreadyStopped ? `App "${appName}" sudah berhenti.` : `App "${appName}" dihentikan.`;
       });
-      await showAppPanel(ctx, appName);
+      await renderPanel(ctx, {
+        output,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
     if (action === "restart") {
       await answerCallback(ctx, "Restart diproses...");
+      let output = "";
       await withAppLock(appName, async () => {
         const pid = await processManager.restart(appName);
-        await ctx.reply(`App "${appName}" restart sukses. PID: ${pid}`);
+        output = `App "${appName}" restart sukses. PID: ${pid}`;
       });
-      await showAppPanel(ctx, appName);
+      await renderPanel(ctx, {
+        output,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
     if (action === "deploy") {
       await answerCallback(ctx, "Deploy diproses...");
+      let output = "";
       await withAppLock(appName, async () => {
-        await ctx.reply(`Deploy "${appName}" dimulai...`);
         const summary = await deployer.deploy(appName);
-        await ctx.reply(
-          [
-            `Deploy "${appName}" selesai.`,
-            `Repo: ${summary.repository}`,
-            "",
-            "Jika app belum jalan, gunakan start."
-          ].join("\n")
-        );
-        const log = [summary.install, summary.build].filter(Boolean).join("\n\n");
-        if (log) {
-          await ctx.reply(clip(log, 3500));
-        }
+        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+        output = [`Deploy "${appName}" selesai.`, detail ? clip(detail, 2200) : ""].filter(Boolean).join("\n\n");
       });
-      await showAppPanel(ctx, appName);
+      await renderPanel(ctx, {
+        output,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
     if (action === "deployr") {
       await answerCallback(ctx, "Deploy + restart diproses...");
+      let output = "";
       await withAppLock(appName, async () => {
-        await ctx.reply(`Deploy + restart "${appName}" dimulai...`);
         const summary = await deployer.deploy(appName);
         const pid = await processManager.restart(appName);
-        await ctx.reply(`Deploy selesai. App direstart dengan PID ${pid}.`);
-        const log = [summary.install, summary.build].filter(Boolean).join("\n\n");
-        if (log) {
-          await ctx.reply(clip(log, 3500));
-        }
+        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+        output = [
+          `Deploy + restart "${appName}" selesai. PID baru: ${pid}`,
+          detail ? clip(detail, 2200) : ""
+        ].filter(Boolean).join("\n\n");
       });
-      await showAppPanel(ctx, appName);
+      await renderPanel(ctx, {
+        output,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
     if (action === "update") {
       await answerCallback(ctx, "Update diproses...");
+      let output = "";
       await withAppLock(appName, async () => {
         const app = db.getApp(appName);
         if (!app) {
-          await ctx.reply(`App "${appName}" tidak ditemukan.`);
-          return;
+          throw new Error(`App "${appName}" tidak ditemukan.`);
         }
-
         const runtime = app.runtime || {};
         const wasRunning = runtime.status === "running" && runtime.pid;
-        await ctx.reply(`Update "${appName}" dimulai...`);
-
         if (wasRunning) {
           await processManager.stop(appName);
         }
-
         const summary = await deployer.deploy(appName, { updateOnly: true });
+        let runMessage = "App tetap dalam kondisi stop (status awal tidak running).";
         if (wasRunning) {
           const pid = await processManager.start(appName);
-          await ctx.reply(`Update selesai. App kembali jalan dengan PID ${pid}.`);
-        } else {
-          await ctx.reply("Update selesai. App tidak direstart (status awal tidak running).");
+          runMessage = `App dijalankan kembali. PID: ${pid}`;
         }
-
-        const log = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
-        if (log) {
-          await ctx.reply(clip(log, 3500));
-        }
+        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+        output = [`Update "${appName}" selesai.`, runMessage, detail ? clip(detail, 2000) : ""]
+          .filter(Boolean)
+          .join("\n\n");
       });
-      await showAppPanel(ctx, appName);
+      await renderPanel(ctx, {
+        output,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
       return;
     }
 
     await answerCallback(ctx, "Aksi tidak dikenal");
   } catch (err) {
-    await replyError(ctx, err);
-    await showAppPanel(ctx, appName);
-  }
-});
-
-bot.action(/^panel:rm:(keep|files|cancel):(.+)$/, async (ctx) => {
-  const mode = ctx.match[1];
-  const appName = parseCallbackAppName(ctx.match[2]);
-
-  try {
-    if (mode === "cancel") {
-      await answerCallback(ctx, "Batal");
-      await showAppPanel(ctx, appName);
-      return;
+      const msg = err instanceof Error ? err.message : String(err);
+      await answerCallback(ctx, "Gagal");
+      await renderPanel(ctx, {
+        output: `Error: ${msg}`,
+        outputIsHtml: false,
+        confirmRemove: false
+      });
     }
-
-    await answerCallback(ctx, "Menghapus app...");
-    await withAppLock(appName, async () => {
-      const deleteFiles = mode === "files";
-      await removeAppInternal(appName, { deleteFiles, force: true });
-      await ctx.reply(
-        [
-          `App "${appName}" dihapus dari database.`,
-          deleteFiles ? "File deployment + log juga dihapus." : "File deployment tidak dihapus."
-        ].join("\n")
-      );
-    });
-    await showPanel(ctx);
-  } catch (err) {
-    await replyError(ctx, err);
-    await showPanel(ctx);
   }
-});
+);
 
 bot.catch(async (err, ctx) => {
   const msg = err instanceof Error ? err.stack || err.message : String(err);

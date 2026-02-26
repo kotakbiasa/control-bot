@@ -100,6 +100,8 @@ Output background:
 
 ## Inline Panel
 
+Mode terbaru: semua kontrol inline berjalan dalam **satu pesan** (message di-edit terus).
+
 1. Kirim `/panel`
 2. Pilih app dari daftar tombol
 3. Klik aksi: `start`, `stop`, `restart`, `deploy`, `deploy + restart`, `update`, `logs`, `vars`, `remove`
