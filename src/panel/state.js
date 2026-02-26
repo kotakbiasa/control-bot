@@ -25,7 +25,9 @@ function getPanelState(chatId) {
 function syncPanelStateWithApps(state, db) {
     const apps = db.getApps();
     const selectedApp = state.selectedApp && apps[state.selectedApp] ? state.selectedApp : null;
-    const view = selectedApp ? state.view : "main";
+    // Views that don't require a selected app
+    const globalViews = ["main", "bot_settings", "vps"];
+    const view = selectedApp || globalViews.includes(state.view) ? state.view : "main";
     return {
         ...state,
         selectedApp,
