@@ -130,9 +130,15 @@ async function withAppLock(appName, fn) {
 
 function appSummary(name, app) {
   const runtime = app.runtime || {};
+  let statusStr = runtime.status || "stopped";
+  if (statusStr === "running" && runtime.lastStartAt) {
+    const elapsedSeconds = Math.floor((Date.now() - new Date(runtime.lastStartAt).getTime()) / 1000);
+    statusStr += ` (uptime: ${formatUptime(elapsedSeconds)})`;
+  }
+
   return [
     `- ${name}`,
-    `  status: ${runtime.status || "stopped"}`,
+    `  status: ${statusStr}`,
     `  pid: ${runtime.pid || "-"}`,
     `  branch: ${app.branch}`,
     `  repo: ${app.repo}`
@@ -359,10 +365,16 @@ function panelText(state) {
     }
   } else if (view === "app" && selectedApp) {
     const runtime = selectedApp.runtime || {};
+    let statusStr = runtime.status || "stopped";
+    if (statusStr === "running" && runtime.lastStartAt) {
+      const elapsedSeconds = Math.floor((Date.now() - new Date(runtime.lastStartAt).getTime()) / 1000);
+      statusStr += ` (uptime: ${formatUptime(elapsedSeconds)})`;
+    }
+
     lines.push(
       `📱 <b>Menu Aplikasi: ${escapeHtml(selectedName)}</b>`,
       "<blockquote>",
-      `<b>Status:</b> ${escapeHtml(runtime.status || "stopped")}`,
+      `<b>Status:</b> ${escapeHtml(statusStr)}`,
       `<b>PID:</b> ${escapeHtml(String(runtime.pid || "-"))}`,
       `<b>Branch:</b> ${escapeHtml(selectedApp.branch || "-")}`,
       `<b>Repo:</b> <pre>${escapeHtml(selectedApp.repo || "-")}</pre>`,
@@ -371,9 +383,15 @@ function panelText(state) {
     );
   } else if (view === "settings" && selectedApp) {
     const runtime = selectedApp.runtime || {};
+    let statusStr = runtime.status || "stopped";
+    if (statusStr === "running" && runtime.lastStartAt) {
+      const elapsedSeconds = Math.floor((Date.now() - new Date(runtime.lastStartAt).getTime()) / 1000);
+      statusStr += ` (uptime: ${formatUptime(elapsedSeconds)})`;
+    }
+
     lines.push(
       `⚙️ <b>Menu Pengaturan: ${escapeHtml(selectedName)}</b>`,
-      `Status saat ini: <b>${escapeHtml(runtime.status || "stopped")}</b>`,
+      `Status saat ini: <b>${escapeHtml(statusStr)}</b>`,
       "",
       "<b>Konfigurasi Aktif:</b>",
       "<blockquote>",

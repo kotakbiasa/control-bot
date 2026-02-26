@@ -7,8 +7,11 @@ function getAugmentedEnv(customEnv = {}) {
   const extraPaths = [
     "/usr/local/bin",
     "/opt/homebrew/bin",
+    "/home/linuxbrew/.linuxbrew/bin",
     path.join(os.homedir(), ".local/bin"),
-    path.join(os.homedir(), ".cargo/bin")
+    path.join(os.homedir(), ".cargo/bin"),
+    path.join(os.homedir(), ".pyenv/shims"),
+    path.join(os.homedir(), ".pyenv/bin")
   ];
   const currentPath = env.PATH || "";
   env.PATH = [...extraPaths, currentPath].filter(Boolean).join(path.delimiter);
