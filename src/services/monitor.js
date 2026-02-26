@@ -1,4 +1,7 @@
 const os = require("os");
+const fs = require("fs");
+const path = require("path");
+const archiver = require("archiver");
 const cron = require("node-cron");
 const { escapeHtml } = require("../utils");
 const { formatBytes, formatUptime, getDiskUsage, getPidUsage } = require("./vpsInfo");
@@ -9,6 +12,8 @@ class Monitor {
         this.bot = deps.bot;
         this.ADMIN_IDS = deps.ADMIN_IDS;
         this.cronJob = null;
+        this.backupCronJob = null;
+        this.deps = deps; // store for backup paths
         this._initFromSettings();
     }
 
@@ -16,6 +21,9 @@ class Monitor {
         const settings = this.db.getSettings();
         if (settings.monitorSchedule) {
             this._setCron(settings.monitorSchedule);
+        }
+        if (settings.autoBackupSchedule) {
+            this._setBackupCron(settings.autoBackupSchedule);
         }
     }
 
@@ -149,6 +157,71 @@ class Monitor {
     // Manual trigger for /monitor command
     async getReport() {
         return this._buildReport();
+    }
+
+    // === Auto-Backup ===
+    setBackupSchedule(schedule) {
+        if (this.backupCronJob) { this.backupCronJob.stop(); this.backupCronJob = null; }
+        if (schedule && cron.validate(schedule)) {
+            this._setBackupCron(schedule);
+        }
+    }
+
+    _setBackupCron(schedule) {
+        if (this.backupCronJob) { this.backupCronJob.stop(); }
+        this.backupCronJob = cron.schedule(schedule, () => this._runBackup());
+    }
+
+    async _runBackup() {
+        try {
+            await this._sendToAdmins("💾 <b>Auto-Backup</b> dimulai...");
+            await this.sendBackup();
+        } catch (err) {
+            console.error("[Monitor._runBackup]", err);
+            await this._sendToAdmins(`❌ Auto-Backup gagal: ${escapeHtml(err.message)}`);
+        }
+    }
+
+    async sendBackup() {
+        const { DB_PATH, ROOT_DIR, DEPLOYMENTS_DIR } = this.deps;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const backupFilename = `control-bot-backup-${timestamp}.zip`;
+        const backupPath = path.join(os.tmpdir(), backupFilename);
+
+        return new Promise((resolve, reject) => {
+            const output = fs.createWriteStream(backupPath);
+            const archive = archiver("zip", { zlib: { level: 9 } });
+
+            output.on("close", async () => {
+                try {
+                    const allAdmins = [...this.ADMIN_IDS];
+                    const dbSettings = this.db.getSettings();
+                    if (dbSettings.admins) { for (const id of dbSettings.admins) { if (!allAdmins.includes(id)) allAdmins.push(id); } }
+                    for (const adminId of allAdmins) {
+                        try {
+                            await this.bot.telegram.sendDocument(adminId, { source: backupPath, filename: backupFilename }, { caption: "💾 Auto-Backup (db.json & .env)" });
+                        } catch (err) { console.error(`[Backup] Gagal kirim ke ${adminId}:`, err.message); }
+                    }
+                    fs.unlinkSync(backupPath);
+                    resolve();
+                } catch (err) { reject(err); }
+            });
+
+            archive.on("error", (err) => reject(err));
+            archive.pipe(output);
+
+            if (DB_PATH && fs.existsSync(DB_PATH)) archive.file(DB_PATH, { name: "db.json" });
+            const mainEnv = path.join(ROOT_DIR, ".env");
+            if (fs.existsSync(mainEnv)) archive.file(mainEnv, { name: "control-bot.env" });
+
+            const apps = this.db.getApps();
+            for (const name of Object.keys(apps)) {
+                const appEnv = path.join(DEPLOYMENTS_DIR, name, ".env");
+                if (fs.existsSync(appEnv)) { archive.file(appEnv, { name: `apps/${name}/.env` }); }
+            }
+
+            archive.finalize();
+        });
     }
 }
 

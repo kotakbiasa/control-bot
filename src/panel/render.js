@@ -64,6 +64,8 @@ function panelText(state, deps) {
             `<b>cmd build:</b> <pre>${escapeHtml(selectedApp.buildCommand || "-")}</pre>`,
             `<b>cmd start:</b> <pre>${escapeHtml(selectedApp.startCommand || "npm start")}</pre>`,
             `<b>Auto-Restart:</b> <code>${escapeHtml(selectedApp.cronSchedule || "Mati")}</code>`,
+            `<b>Webhook:</b> ${selectedApp.webhookSecret ? "✅ Aktif" : "🔴 Mati"}`,
+            `<b>Scheduled Cmd:</b> ${(selectedApp.scheduledCommands || []).length}`,
             "</blockquote>"
         );
     } else if (view === "bot_settings") {
@@ -72,6 +74,8 @@ function panelText(state, deps) {
         const totalAdmins = ADMIN_IDS.length + dynamicAdminsCount;
         const monitorSchedule = dbSettings.monitorSchedule || "off";
         const diskThreshold = dbSettings.diskAlertThreshold || 85;
+        const webhookEnabled = dbSettings.webhookEnabled ? "✅ Aktif" : "🔴 Mati";
+        const autoBackup = dbSettings.autoBackupSchedule || "off";
 
         lines.push(
             "⚙️ <b>Pengaturan Bot (Global)</b>",
@@ -79,9 +83,11 @@ function panelText(state, deps) {
             `<b>Timezone:</b> ${escapeHtml(process.env.TZ)}`,
             `<b>Node.js:</b> ${escapeHtml(process.version)}`,
             `<b>Bot Uptime:</b> ${escapeHtml(formatUptime(process.uptime()))}`,
-            `<b>Total Admin:</b> ${totalAdmins} (${ADMIN_IDS.length} from .env, ${dynamicAdminsCount} from DB)`,
+            `<b>Admin:</b> ${totalAdmins} (${ADMIN_IDS.length} .env + ${dynamicAdminsCount} DB)`,
             `<b>Monitor:</b> <code>${escapeHtml(monitorSchedule)}</code>`,
             `<b>Disk Alert:</b> ${diskThreshold}%`,
+            `<b>Webhook:</b> ${webhookEnabled}`,
+            `<b>Auto-Backup:</b> <code>${escapeHtml(autoBackup)}</code>`,
             "</blockquote>",
             "",
             "Pilih menu di bawah ini untuk mengatur bot:"
@@ -155,6 +161,11 @@ function panelKeyboard(state, deps) {
             { text: "📈 Disk Alert", callback_data: "panel:bot:setdiskalert" }
         ]);
         rows.push([
+            { text: "🔗 Webhook", callback_data: "panel:bot:webhook" },
+            { text: db.getSettings().webhookEnabled ? "🔴 Matikan Webhook" : "✅ Aktifkan Webhook", callback_data: "panel:bot:webhooktoggle" }
+        ]);
+        rows.push([
+            { text: "💾 Auto-Backup", callback_data: "panel:bot:setbackup" },
             { text: "📋 Report Sekarang", callback_data: "panel:bot:report" }
         ]);
         rows.push([
@@ -221,6 +232,17 @@ function panelKeyboard(state, deps) {
             { text: "🗑 Del Env Var", callback_data: "panel:edit:delvar" },
             { text: "📜 Lihat Vars", callback_data: "panel:run:vars" }
         ]);
+        rows.push([
+            { text: "🔗 Webhook", callback_data: "panel:app:webhooktoggle" },
+            { text: "⏰ Add Schedule", callback_data: "panel:edit:addsched" }
+        ]);
+        const selectedAppData = apps[synced.selectedApp];
+        if (selectedAppData && selectedAppData.scheduledCommands && selectedAppData.scheduledCommands.length > 0) {
+            rows.push([
+                { text: "📋 Lihat Schedule", callback_data: "panel:edit:listsched" },
+                { text: "🗑 Del Schedule", callback_data: "panel:edit:delsched" }
+            ]);
+        }
         rows.push([
             { text: "🔙 Kembali ke App", callback_data: `panel:nav:app:${callbackAppName(synced.selectedApp)}` }
         ]);

@@ -238,9 +238,10 @@ class ProcessManager extends EventEmitter {
   }
 
   updateCron(appName, schedule) {
-    if (this.cronJobs.has(appName)) {
-      this.cronJobs.get(appName).stop();
-      this.cronJobs.delete(appName);
+    const key = `cron:${appName}`;
+    if (this.cronJobs.has(key)) {
+      this.cronJobs.get(key).stop();
+      this.cronJobs.delete(key);
     }
     if (schedule && cron.validate(schedule)) {
       const job = cron.schedule(schedule, async () => {
@@ -254,7 +255,7 @@ class ProcessManager extends EventEmitter {
           console.error(`[CRON] Restart failed for ${appName}:`, err);
         }
       });
-      this.cronJobs.set(appName, job);
+      this.cronJobs.set(key, job);
     }
   }
 
@@ -267,9 +268,59 @@ class ProcessManager extends EventEmitter {
       errPath: err
     };
   }
+
+  // === Scheduled Commands ===
+  addScheduledCommand(appName, label, schedule, command) {
+    const key = `sched:${appName}:${label}`;
+    if (this.cronJobs.has(key)) {
+      this.cronJobs.get(key).stop();
+      this.cronJobs.delete(key);
+    }
+    if (schedule && cron.validate(schedule)) {
+      const job = cron.schedule(schedule, async () => {
+        try {
+          console.log(`[SCHED] Running "${label}" for ${appName}: ${command}`);
+          await this.runCommandInApp(appName, command);
+        } catch (err) {
+          console.error(`[SCHED] Command "${label}" failed for ${appName}:`, err);
+        }
+      });
+      this.cronJobs.set(key, job);
+    }
+  }
+
+  removeScheduledCommand(appName, label) {
+    const key = `sched:${appName}:${label}`;
+    if (this.cronJobs.has(key)) {
+      this.cronJobs.get(key).stop();
+      this.cronJobs.delete(key);
+    }
+  }
+
+  recoverScheduledCommands() {
+    const apps = this.db.getApps();
+    for (const appName of Object.keys(apps)) {
+      const app = apps[appName];
+      if (app.scheduledCommands && Array.isArray(app.scheduledCommands)) {
+        for (const sc of app.scheduledCommands) {
+          this.addScheduledCommand(appName, sc.label, sc.schedule, sc.command);
+        }
+      }
+    }
+  }
+
+  async runCommandInApp(appName, command) {
+    const { execSync } = require("child_process");
+    const app = this.db.getApp(appName);
+    if (!app) throw new Error(`App "${appName}" tidak ditemukan`);
+    if (!fs.existsSync(app.directory)) throw new Error(`Direktori app belum ada: ${app.directory}`);
+    const result = execSync(command, { cwd: app.directory, timeout: 60000, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return result;
+  }
 }
 
 module.exports = {
   ProcessManager,
   isPidAlive
 };
+

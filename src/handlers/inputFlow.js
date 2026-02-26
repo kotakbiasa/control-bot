@@ -16,7 +16,7 @@ function register(bot, deps) {
         await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
     });
 
-    bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv|cron)$/, async (ctx) => {
+    bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv|cron|addsched|listsched|delsched)$/, async (ctx) => {
         const action = ctx.match[1];
         const chatId = getChatIdFromCtx(ctx);
         if (!chatId) return;
@@ -42,6 +42,34 @@ function register(bot, deps) {
                 [{ text: "📅 Tiap Senin Pagi", callback_data: "panel:cron:0 6 * * 1" }, { text: "✖️ Matikan", callback_data: "panel:cron:off" }],
                 [{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]
             ];
+        }
+        else if (action === "addsched") {
+            nextStep = "SCHED_LABEL";
+            promptText = `⏰ <b>Tambah Scheduled Command</b> untuk <b>${escapeHtml(appName)}</b>\n\nBalas dengan <b>Label/Nama</b> untuk schedule ini (contoh: <code>cleanup</code>, <code>cache-clear</code>):`;
+        }
+        else if (action === "listsched") {
+            const { setPanelState } = require("../panel/state");
+            const app = db.getApp(appName);
+            const schedules = (app && app.scheduledCommands) || [];
+            let output;
+            if (schedules.length === 0) {
+                output = `Belum ada scheduled command untuk <b>${escapeHtml(appName)}</b>.`;
+            } else {
+                output = `📋 <b>Scheduled Commands untuk ${escapeHtml(appName)}:</b>\n\n` +
+                    schedules.map((sc, i) => `${i + 1}. <b>${escapeHtml(sc.label)}</b>\n   <code>${escapeHtml(sc.schedule)}</code> → <code>${escapeHtml(sc.command)}</code>`).join("\n\n");
+            }
+            await answerCallback(ctx);
+            setPanelState(chatId, { output, outputIsHtml: true }, db);
+            const { renderPanel } = require("../panel/render");
+            await renderPanel(ctx, {}, deps);
+            return;
+        }
+        else if (action === "delsched") {
+            nextStep = "DEL_SCHED";
+            const app = db.getApp(appName);
+            const schedules = (app && app.scheduledCommands) || [];
+            const list = schedules.map((sc, i) => `${i + 1}. <b>${escapeHtml(sc.label)}</b> — <code>${escapeHtml(sc.schedule)}</code>`).join("\n");
+            promptText = `🗑 <b>Hapus Scheduled Command</b> untuk <b>${escapeHtml(appName)}</b>\n\n${list || "(kosong)"}\n\nBalas dengan <b>Label</b> yang ingin dihapus:`;
         }
 
         if (nextStep) {
@@ -270,6 +298,63 @@ function register(bot, deps) {
                 await db.upsertApp(data.name, (existing) => { const env = { ...(existing.env || {}) }; delete env[key]; return { ...existing, env, updatedAt: nowIso() }; });
                 chatInputState.delete(chatId);
                 const output = `✅ Env var dihapus: ${escapeHtml(data.name)} -> <code>${escapeHtml(key)}</code>`;
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            // === Scheduled Commands 3-step flow ===
+            if (step === "SCHED_LABEL") {
+                const label = text.trim().replace(/[^A-Za-z0-9_-]/g, "");
+                if (!label) { await ctx.reply("Label hanya boleh huruf, angka, underscore, dash. Coba lagi atau Cancel ❌."); return; }
+                const app = db.getApp(data.name);
+                const existing = (app && app.scheduledCommands) || [];
+                if (existing.find(sc => sc.label === label)) { await ctx.reply(`Label "${label}" sudah ada. Gunakan label lain atau Cancel ❌.`); return; }
+                data.label = label;
+                chatInputState.set(chatId, { step: "SCHED_CRON", data, originalMessageId });
+                await ctx.reply(`Label: <b>${escapeHtml(label)}</b>\n\nSekarang balas dengan <b>jadwal cron</b> (contoh: <code>0 0 * * *</code> untuk tiap tengah malam):`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+                return;
+            }
+
+            if (step === "SCHED_CRON") {
+                data.schedule = text.trim();
+                chatInputState.set(chatId, { step: "SCHED_CMD", data, originalMessageId });
+                await ctx.reply(`Jadwal: <code>${escapeHtml(data.schedule)}</code>\n\nSekarang balas dengan <b>command</b> yang ingin dijalankan (contoh: <code>npm run cleanup</code>):`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+                return;
+            }
+
+            if (step === "SCHED_CMD") {
+                const command = text.trim();
+                const schedItem = { label: data.label, schedule: data.schedule, command };
+                await db.upsertApp(data.name, (existing) => ({
+                    ...existing,
+                    scheduledCommands: [...(existing.scheduledCommands || []), schedItem],
+                    updatedAt: nowIso()
+                }));
+                processManager.addScheduledCommand(data.name, data.label, data.schedule, command);
+                chatInputState.delete(chatId);
+                const output = `✅ Scheduled command ditambahkan untuk <b>${escapeHtml(data.name)}</b>:\n<blockquote><b>${escapeHtml(data.label)}</b>\n<code>${escapeHtml(data.schedule)}</code> → <code>${escapeHtml(command)}</code></blockquote>`;
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            if (step === "DEL_SCHED") {
+                const label = text.trim();
+                const app = db.getApp(data.name);
+                const existing = (app && app.scheduledCommands) || [];
+                const found = existing.find(sc => sc.label === label);
+                if (!found) { await ctx.reply(`Label "${label}" tidak ditemukan. Coba lagi atau Cancel ❌.`); return; }
+                await db.upsertApp(data.name, (ex) => ({
+                    ...ex,
+                    scheduledCommands: (ex.scheduledCommands || []).filter(sc => sc.label !== label),
+                    updatedAt: nowIso()
+                }));
+                processManager.removeScheduledCommand(data.name, label);
+                chatInputState.delete(chatId);
+                const output = `✅ Scheduled command <b>${escapeHtml(label)}</b> dihapus dari <b>${escapeHtml(data.name)}</b>.`;
                 await ctx.reply(output, { parse_mode: "HTML" });
                 setPanelState(chatId, { output, outputIsHtml: true }, db);
                 if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }

@@ -124,6 +124,110 @@ function register(bot, deps) {
         await renderPanel(ctx, {}, deps);
     });
 
+    // === Webhook ===
+    bot.action("panel:bot:webhook", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        const settings = db.getSettings();
+        const port = settings.webhookPort || 9876;
+        const enabled = settings.webhookEnabled || false;
+        const output = [
+            `🔗 <b>Webhook Server</b>`,
+            `<blockquote>`,
+            `<b>Status:</b> ${enabled ? "✅ Aktif" : "🔴 Mati"}`,
+            `<b>Port:</b> ${port}`,
+            `</blockquote>`,
+            "",
+            `URL Format: <code>POST http://YOUR_IP:${port}/webhook/APP_NAME?secret=SECRET</code>`,
+            "",
+            "Aktifkan webhook per app melalui menu Settings tiap app."
+        ].join("\n");
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
+    bot.action("panel:bot:webhooktoggle", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        const settings = db.getSettings();
+        const newState = !(settings.webhookEnabled);
+        const port = settings.webhookPort || 9876;
+        await db.updateSettings({ webhookEnabled: newState, webhookPort: port });
+        const { webhookServer } = deps;
+        if (newState) { webhookServer.start(port); } else { webhookServer.stop(); }
+        const output = newState
+            ? `✅ Webhook server <b>diaktifkan</b> di port ${port}`
+            : "🔴 Webhook server <b>dimatikan</b>";
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
+    // === Auto-Backup ===
+    bot.action("panel:bot:setbackup", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        const settings = db.getSettings();
+        const current = settings.autoBackupSchedule || "off";
+        const text = `💾 <b>Auto-Backup</b>\n\nJadwal saat ini: <code>${escapeHtml(current)}</code>\n\nPilih jadwal:`;
+        await ctx.reply(text, {
+            parse_mode: "HTML", reply_markup: {
+                inline_keyboard: [
+                    [{ text: "📅 Tiap Hari", callback_data: "panel:autobackup:0 0 * * *" }, { text: "📅 Tiap Minggu", callback_data: "panel:autobackup:0 0 * * 0" }],
+                    [{ text: "✖️ Matikan", callback_data: "panel:autobackup:off" }, { text: "Cancel ❌", callback_data: "panel:cancel_input" }]
+                ]
+            }
+        });
+    });
+
+    bot.action(/^panel:autobackup:(.+)$/, async (ctx) => {
+        const val = ctx.match[1].trim();
+        const chatId = getChatIdFromCtx(ctx);
+        const schedule = (val === "off" || val === "mati") ? null : val;
+        await db.updateSettings({ autoBackupSchedule: schedule });
+        const { monitor } = deps;
+        monitor.setBackupSchedule(schedule);
+        const output = schedule
+            ? `✅ Auto-Backup diatur ke <code>${escapeHtml(schedule)}</code>`
+            : "✅ Auto-Backup dimatikan.";
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
+    // === Webhook per app ===
+    bot.action("panel:app:webhooktoggle", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        const { selectedAppFromState } = require("../panel/state");
+        const selected = selectedAppFromState(chatId, db);
+        if (!selected) { return; }
+        const appName = selected.name;
+        const app = selected.app;
+        const { webhookServer } = deps;
+        let output;
+        if (app.webhookSecret) {
+            // Disable webhook
+            await db.upsertApp(appName, (existing) => ({ ...existing, webhookSecret: null }));
+            output = `🔴 Webhook untuk <b>${escapeHtml(appName)}</b> dinonaktifkan.`;
+        } else {
+            // Enable webhook
+            const secret = webhookServer.generateSecret();
+            await db.upsertApp(appName, (existing) => ({ ...existing, webhookSecret: secret }));
+            const settings = db.getSettings();
+            const port = settings.webhookPort || 9876;
+            output = [
+                `✅ Webhook untuk <b>${escapeHtml(appName)}</b> diaktifkan!`,
+                "",
+                `<b>URL:</b>`,
+                `<code>POST http://YOUR_IP:${port}/webhook/${escapeHtml(appName)}?secret=${escapeHtml(secret)}</code>`,
+                "",
+                "Tambahkan URL ini di GitHub → Settings → Webhooks.",
+                "Content type: <code>application/json</code>"
+            ].join("\n");
+        }
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
     bot.action("panel:bot:update", async (ctx) => {
         await answerCallback(ctx, "Updating bot...");
         try {

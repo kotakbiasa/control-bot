@@ -7,6 +7,7 @@ const { JsonDb } = require("./db");
 const { Deployer } = require("./deployer");
 const { ProcessManager } = require("./processManager");
 const { Monitor } = require("./services/monitor");
+const { WebhookServer } = require("./services/webhook");
 const { ensureDir, escapeHtml, withinDir } = require("./utils");
 
 // --- Directories ---
@@ -96,7 +97,7 @@ processManager.on("crash", async (appName) => {
   }
 });
 
-// --- Monitor (initialized after bot is created, but cron starts after launch) ---
+// --- Monitor & Webhook ---
 const monitor = new Monitor({ db, bot, ADMIN_IDS });
 
 // --- Shared deps for all handlers ---
@@ -106,6 +107,10 @@ const deps = {
   chatInputState, busyApps,
   isAdmin, withAppLock, withinDir
 };
+
+// Webhook needs deps for withAppLock etc, so init after deps
+const webhookServer = new WebhookServer(deps);
+deps.webhookServer = webhookServer;
 
 // --- Middleware & Handlers ---
 bot.use(adminOnly);
@@ -128,6 +133,7 @@ bot.catch(async (err, ctx) => {
 // --- Launch ---
 async function main() {
   await processManager.recoverState();
+  processManager.recoverScheduledCommands();
   await bot.launch();
   console.log("Telegram control bot running...");
 }
