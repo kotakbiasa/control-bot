@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const EventEmitter = require("events");
+const cron = require("node-cron");
 const { ensureDir, nowIso, getAugmentedEnv } = require("./utils");
 
 function delay(ms) {
@@ -24,12 +26,44 @@ function readTailLines(filePath, lines = 80) {
   return arr.slice(-lines).join("\n");
 }
 
-class ProcessManager {
+class ProcessManager extends EventEmitter {
   constructor({ db, logsDir }) {
+    super();
     this.db = db;
     this.logsDir = logsDir;
     this.running = new Map();
+    this.stopping = new Set();
+    this.starting = new Set();
+    this.cronJobs = new Map();
     ensureDir(this.logsDir);
+
+    // Hitung mundur pengecekan crash setiap 10 detik
+    this.crashCheckInterval = setInterval(() => this._checkCrashes(), 10000);
+  }
+
+  async _checkCrashes() {
+    try {
+      const apps = this.db.getApps();
+      for (const appName of Object.keys(apps)) {
+        if (this.stopping.has(appName) || this.starting.has(appName)) continue;
+
+        const app = apps[appName];
+        const status = app.runtime && app.runtime.status ? app.runtime.status : "stopped";
+        const pid = app.runtime && app.runtime.pid ? app.runtime.pid : null;
+
+        if (status === "running" && pid && !isPidAlive(pid)) {
+          await this.updateRuntime(appName, {
+            status: "stopped",
+            pid: null,
+            lastStopAt: nowIso(),
+            lastExitCode: "CRASH_DETECTED"
+          });
+          this.emit("crash", appName, app);
+        }
+      }
+    } catch (err) {
+      console.error("[ProcessManager._checkCrashes]", err);
+    }
   }
 
   getLogPaths(appName) {
@@ -54,6 +88,9 @@ class ProcessManager {
           status: "stopped",
           pid: null
         });
+      }
+      if (app.cronSchedule) {
+        this.updateCron(name, app.cronSchedule);
       }
     }
   }
@@ -94,98 +131,131 @@ class ProcessManager {
   }
 
   async start(appName) {
-    const app = this.db.getApp(appName);
-    if (!app) throw new Error(`App "${appName}" tidak ditemukan`);
-    const status = this.getStatus(app);
-    if (status.alive) {
-      throw new Error(`App "${appName}" sudah berjalan (PID ${status.pid})`);
-    }
+    this.starting.add(appName);
+    try {
+      const app = this.db.getApp(appName);
+      if (!app) throw new Error(`App "${appName}" tidak ditemukan`);
+      const status = this.getStatus(app);
+      if (status.alive) {
+        throw new Error(`App "${appName}" sudah berjalan (PID ${status.pid})`);
+      }
 
-    if (!fs.existsSync(app.directory)) {
-      throw new Error(`Direktori app belum ada: ${app.directory}. Jalankan /deploy ${appName} dulu.`);
-    }
+      if (!fs.existsSync(app.directory)) {
+        throw new Error(`Direktori app belum ada: ${app.directory}. Jalankan /deploy ${appName} dulu.`);
+      }
 
-    const { out, err } = this.getLogPaths(appName);
-    const outFd = fs.openSync(out, "a");
-    const errFd = fs.openSync(err, "a");
-    const child = spawn(app.startCommand, {
-      cwd: app.directory,
-      env: getAugmentedEnv(app.env || {}),
-      shell: true,
-      detached: true,
-      stdio: ["ignore", outFd, errFd]
-    });
-
-    child.unref();
-    this.running.set(appName, child);
-
-    child.on("exit", async (code, signal) => {
-      this.running.delete(appName);
-      await this.updateRuntime(appName, {
-        status: "stopped",
-        pid: null,
-        lastExitCode: code,
-        lastSignal: signal || null,
-        lastStopAt: nowIso()
+      const { out, err } = this.getLogPaths(appName);
+      const outFd = fs.openSync(out, "a");
+      const errFd = fs.openSync(err, "a");
+      const child = spawn(app.startCommand, {
+        cwd: app.directory,
+        env: getAugmentedEnv(app.env || {}),
+        shell: true,
+        detached: true,
+        stdio: ["ignore", outFd, errFd]
       });
-    });
 
-    await this.updateRuntime(appName, {
-      status: "running",
-      pid: child.pid,
-      lastStartAt: nowIso()
-    });
+      child.unref();
+      this.running.set(appName, child);
 
-    return child.pid;
+      child.on("exit", async (code, signal) => {
+        this.running.delete(appName);
+        await this.updateRuntime(appName, {
+          status: "stopped",
+          pid: null,
+          lastExitCode: code,
+          lastSignal: signal || null,
+          lastStopAt: nowIso()
+        });
+      });
+
+      await this.updateRuntime(appName, {
+        status: "running",
+        pid: child.pid,
+        lastStartAt: nowIso()
+      });
+
+      this.starting.delete(appName);
+      return child.pid;
+    } catch (err) {
+      this.starting.delete(appName);
+      throw err;
+    }
   }
 
   async stop(appName) {
-    const app = this.db.getApp(appName);
-    if (!app) throw new Error(`App "${appName}" tidak ditemukan`);
-    const pid = app.runtime && app.runtime.pid ? app.runtime.pid : null;
-    if (!isPidAlive(pid)) {
+    this.stopping.add(appName);
+    try {
+      const app = this.db.getApp(appName);
+      if (!app) throw new Error(`App "${appName}" tidak ditemukan`);
+      const pid = app.runtime && app.runtime.pid ? app.runtime.pid : null;
+      if (!isPidAlive(pid)) {
+        await this.updateRuntime(appName, {
+          status: "stopped",
+          pid: null,
+          lastStopAt: nowIso()
+        });
+        return { alreadyStopped: true };
+      }
+
+      try {
+        process.kill(-pid, "SIGTERM");
+      } catch {
+        process.kill(pid, "SIGTERM");
+      }
+
+      const maxWaitMs = 8000;
+      const step = 250;
+      let waited = 0;
+      while (waited < maxWaitMs && isPidAlive(pid)) {
+        await delay(step);
+        waited += step;
+      }
+
+      if (isPidAlive(pid)) {
+        try {
+          process.kill(-pid, "SIGKILL");
+        } catch {
+          process.kill(pid, "SIGKILL");
+        }
+      }
+
       await this.updateRuntime(appName, {
         status: "stopped",
         pid: null,
         lastStopAt: nowIso()
       });
-      return { alreadyStopped: true };
+
+      return { alreadyStopped: false };
+    } finally {
+      this.stopping.delete(appName);
     }
-
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch {
-      process.kill(pid, "SIGTERM");
-    }
-
-    const maxWaitMs = 8000;
-    const step = 250;
-    let waited = 0;
-    while (waited < maxWaitMs && isPidAlive(pid)) {
-      await delay(step);
-      waited += step;
-    }
-
-    if (isPidAlive(pid)) {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch {
-        process.kill(pid, "SIGKILL");
-      }
-    }
-
-    await this.updateRuntime(appName, {
-      status: "stopped",
-      pid: null,
-      lastStopAt: nowIso()
-    });
-
-    return { alreadyStopped: false };
   }
 
   async restart(appName) {
     await this.stop(appName);
     return this.start(appName);
+  }
+
+  updateCron(appName, schedule) {
+    if (this.cronJobs.has(appName)) {
+      this.cronJobs.get(appName).stop();
+      this.cronJobs.delete(appName);
+    }
+    if (schedule && cron.validate(schedule)) {
+      const job = cron.schedule(schedule, async () => {
+        try {
+          const app = this.db.getApp(appName);
+          if (app && app.runtime.status === "running") {
+            console.log(`[CRON] Auto-restarting app: ${appName}`);
+            await this.restart(appName);
+          }
+        } catch (err) {
+          console.error(`[CRON] Restart failed for ${appName}:`, err);
+        }
+      });
+      this.cronJobs.set(appName, job);
+    }
   }
 
   readLogs(appName, lines = 80) {

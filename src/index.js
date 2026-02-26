@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const archiver = require("archiver");
 require("dotenv").config();
 const { Telegraf } = require("telegraf");
 const { JsonDb } = require("./db");
@@ -48,6 +49,17 @@ const bot = new Telegraf(BOT_TOKEN);
 const busyApps = new Set();
 const panelStateByChat = new Map();
 const chatInputState = new Map();
+
+processManager.on("crash", async (appName) => {
+  const msg = `⚠️ <b>CRASH ALERT</b> ⚠️\nApp <b>${escapeHtml(appName)}</b> telah mati secara paksa atau berhenti karena error (crash)!\n\nSilakan buka /panel dan periksa "Logs" untuk melihat penyebabnya.`;
+  for (const adminId of ADMIN_IDS) {
+    try {
+      await bot.telegram.sendMessage(adminId, msg, { parse_mode: "HTML" });
+    } catch (err) {
+      console.error(`Gagal mengirim crash alert ke admin ${adminId}:`, err);
+    }
+  }
+});
 
 function clip(text = "", max = 3500) {
   if (text.length <= max) return text;
@@ -384,6 +396,7 @@ function panelText(state) {
       `<b>cmd install:</b> <pre>${escapeHtml(selectedApp.installCommand || "npm install")}</pre>`,
       `<b>cmd build:</b> <pre>${escapeHtml(selectedApp.buildCommand || "-")}</pre>`,
       `<b>cmd start:</b> <pre>${escapeHtml(selectedApp.startCommand || "npm start")}</pre>`,
+      `<b>Auto-Restart:</b> <code>${escapeHtml(selectedApp.cronSchedule || "Mati")}</code>`,
       "</blockquote>"
     );
   } else if (view === "vps") {
@@ -443,6 +456,10 @@ function panelKeyboard(state) {
     ]);
   } else if (view === "vps") {
     rows.push([
+      { text: "📦 Backup Data", callback_data: "panel:vps:backup" },
+      { text: "🧹 Cleanup System", callback_data: "panel:vps:cleanup" }
+    ]);
+    rows.push([
       { text: "🔄 Refresh VPS", callback_data: "panel:vps" },
       { text: "🔙 Kembali", callback_data: "panel:nav:main" }
     ]);
@@ -477,6 +494,9 @@ function panelKeyboard(state) {
     rows.push([
       { text: "✏️ Edit Repo", callback_data: "panel:edit:repo" },
       { text: "✏️ Edit Branch", callback_data: "panel:edit:branch" }
+    ]);
+    rows.push([
+      { text: "⏱️ Set Auto-Restart (Cron)", callback_data: "panel:edit:cron" }
     ]);
     rows.push([
       { text: "🛠 Cmd Install", callback_data: "panel:edit:cmd:install" },
@@ -782,6 +802,24 @@ bot.on("text", async (ctx, next) => {
       }));
       chatInputState.delete(chatId);
       const output = `✅ Env var diset untuk <b>${escapeHtml(data.name)}</b>:\n<blockquote><pre>${escapeHtml(data.key)}=${escapeHtml(value)}</pre></blockquote>`;
+      await ctx.reply(output, { parse_mode: "HTML" });
+      setPanelState(chatId, { output, outputIsHtml: true });
+      if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
+      return;
+    }
+
+    // Edit Cron Schedule
+    if (step === "EDIT_CRON") {
+      let finalVal = text.trim();
+      if (finalVal.toLowerCase() === "off" || finalVal.toLowerCase() === "mati") finalVal = null;
+
+      await db.upsertApp(data.name, (existing) => {
+        return { ...existing, cronSchedule: finalVal, updatedAt: nowIso() };
+      });
+      processManager.updateCron(data.name, finalVal);
+
+      chatInputState.delete(chatId);
+      const output = `✅ Auto-Restart untuk <b>${escapeHtml(data.name)}</b> diatur ke <code>${escapeHtml(finalVal || "Mati")}</code>.`;
       await ctx.reply(output, { parse_mode: "HTML" });
       setPanelState(chatId, { output, outputIsHtml: true });
       if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx); } catch { } }
@@ -1441,6 +1479,84 @@ bot.action("panel:vps", async (ctx) => {
   });
 });
 
+bot.action("panel:vps:backup", async (ctx) => {
+  await answerCallback(ctx, "Membuat backup...");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupFilename = `control-bot-backup-${timestamp}.zip`;
+  const backupPath = path.join(os.tmpdir(), backupFilename);
+
+  const output = fs.createWriteStream(backupPath);
+  const archive = archiver("zip", { zlib: { level: 9 } });
+
+  output.on("close", async () => {
+    try {
+      await ctx.replyWithDocument({ source: backupPath, filename: backupFilename }, { caption: "📦 Backup Data (db.json & .env)" });
+      fs.unlinkSync(backupPath);
+    } catch (err) {
+      console.error(err);
+      await ctx.reply(`Gagal mengirim backup: ${err.message}`);
+    }
+  });
+
+  archive.on("error", async (err) => {
+    await ctx.reply(`Gagal membuat zip: ${err.message}`);
+  });
+
+  archive.pipe(output);
+
+  if (fs.existsSync(DB_PATH)) archive.file(DB_PATH, { name: "db.json" });
+
+  const mainEnv = path.join(ROOT_DIR, ".env");
+  if (fs.existsSync(mainEnv)) archive.file(mainEnv, { name: "control-bot.env" });
+
+  const apps = db.getApps();
+  for (const name of Object.keys(apps)) {
+    const appEnv = path.join(DEPLOYMENTS_DIR, name, ".env");
+    if (fs.existsSync(appEnv)) {
+      archive.file(appEnv, { name: `apps/${name}/.env` });
+    }
+  }
+
+  archive.finalize();
+});
+
+bot.action("panel:vps:cleanup", async (ctx) => {
+  await answerCallback(ctx, "Membersihkan VPS...");
+  try {
+    const result = await runShell("npm cache clean --force", { cwd: ROOT_DIR });
+
+    // Hapus log yang sudah sangat besar atau lama jika perlu (disini kita hapus yg ukurannya 0)
+    let logMsg = "";
+    if (fs.existsSync(LOGS_DIR)) {
+      const files = fs.readdirSync(LOGS_DIR);
+      let deleted = 0;
+      for (const file of files) {
+        const full = path.join(LOGS_DIR, file);
+        const stat = fs.statSync(full);
+        if (stat.size === 0) {
+          fs.unlinkSync(full);
+          deleted++;
+        }
+      }
+      if (deleted > 0) logMsg = `\nDihapus ${deleted} file log kosong.`;
+    }
+
+    const output = [
+      "🧹 <b>System Cleanup Selesai!</b>",
+      "<u>NPM Cache:</u>",
+      `<pre>${escapeHtml(clip(result.stdout + result.stderr, 1000) || "OK")}</pre>`,
+      logMsg
+    ].join("\n");
+
+    setPanelState(getChatIdFromCtx(ctx), { output, outputIsHtml: true });
+    await renderPanel(ctx);
+  } catch (err) {
+    console.error(err);
+    setPanelState(getChatIdFromCtx(ctx), { output: `Gagal cleanup: ${err.message}`, outputIsHtml: false });
+    await renderPanel(ctx);
+  }
+});
+
 bot.action("panel:cancel_input", async (ctx) => {
   const chatId = getChatIdFromCtx(ctx);
   if (chatId) {
@@ -1459,7 +1575,7 @@ bot.action("panel:addapp:start", async (ctx) => {
   await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
 });
 
-bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv)$/, async (ctx) => {
+bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv|cron)$/, async (ctx) => {
   const action = ctx.match[1];
   const chatId = getChatIdFromCtx(ctx);
   if (!chatId) return;
@@ -1474,6 +1590,7 @@ bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delv
   const appName = selected.name;
   let nextStep = "";
   let promptText = "";
+  let customKeyboard = [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]];
 
   if (action === "repo") {
     nextStep = "EDIT_REPO";
@@ -1494,11 +1611,52 @@ bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delv
   } else if (action === "importenv") {
     nextStep = "IMPORT_ENV";
     promptText = `Mengimpor .env untuk <b>${escapeHtml(appName)}</b>.\nBalas pesan ini dengan teks atau isi dari file <b>.env</b>:\n<blockquote><pre>PORT=8080\nNODE_ENV=production\nTOKEN="abc 123"</pre></blockquote>`;
+  } else if (action === "cron") {
+    nextStep = "EDIT_CRON";
+    promptText = `Pengaturan Auto-Restart (Cron) untuk <b>${escapeHtml(appName)}</b>\n\nPilih jadwal yang tersedia di bawah, atau balas pesan ini dengan format cron manual (misal: <code>0 0 * * *</code>) atau ketik <b>off</b>/<b>mati</b> untuk mematikan.`;
+    customKeyboard = [
+      [{ text: "⏰ Tiap Tengah Malam", callback_data: "panel:cron:0 0 * * *" }, { text: "⏱️ Tiap Jam", callback_data: "panel:cron:0 * * * *" }],
+      [{ text: "📅 Tiap Senin Pagi", callback_data: "panel:cron:0 6 * * 1" }, { text: "✖️ Matikan", callback_data: "panel:cron:off" }],
+      [{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]
+    ];
   }
 
   if (nextStep) {
     chatInputState.set(chatId, { step: nextStep, data: { name: appName }, originalMessageId: ctx.callbackQuery.message?.message_id });
-    await ctx.reply(promptText, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+    await ctx.reply(promptText, { parse_mode: "HTML", reply_markup: { inline_keyboard: customKeyboard } });
+  }
+});
+
+bot.action(/^panel:cron:(.+)$/, async (ctx) => {
+  const cronStr = ctx.match[1].trim();
+  const chatId = getChatIdFromCtx(ctx);
+  const state = chatInputState.get(chatId) || {};
+  if (state.step !== "EDIT_CRON" || !state.data.name) {
+    return answerCallback(ctx, "Sesi edit kadaluarsa");
+  }
+  const appName = state.data.name;
+  chatInputState.delete(chatId);
+
+  const finalVal = (cronStr === "off" || cronStr === "mati") ? null : cronStr;
+
+  await db.upsertApp(appName, (existing) => {
+    return { ...existing, cronSchedule: finalVal, updatedAt: nowIso() };
+  });
+
+  processManager.updateCron(appName, finalVal);
+
+  const output = `✅ Auto-Restart untuk <b>${escapeHtml(appName)}</b> diatur ke <code>${escapeHtml(finalVal || "Mati")}</code>.`;
+  setPanelState(chatId, { output, outputIsHtml: true });
+
+  if (state.originalMessageId) {
+    try {
+      ctx.callbackQuery = { message: { message_id: state.originalMessageId } };
+      await renderPanel(ctx);
+    } catch {
+      await renderPanel(ctx);
+    }
+  } else {
+    await renderPanel(ctx);
   }
 });
 
