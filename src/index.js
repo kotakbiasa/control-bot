@@ -67,6 +67,7 @@ function getChatIdFromCtx(ctx) {
 
 function basePanelState() {
   return {
+    view: "main",
     selectedApp: null,
     output: "",
     outputIsHtml: false,
@@ -86,10 +87,12 @@ function getPanelState(chatId) {
 function syncPanelStateWithApps(state) {
   const apps = db.getApps();
   const names = Object.keys(apps).sort();
-  const selectedApp = state.selectedApp && apps[state.selectedApp] ? state.selectedApp : names[0] || null;
+  const selectedApp = state.selectedApp && apps[state.selectedApp] ? state.selectedApp : null;
+  const view = selectedApp ? state.view : "main";
   return {
     ...state,
-    selectedApp
+    selectedApp,
+    view
   };
 }
 
@@ -327,43 +330,55 @@ function panelText(state) {
   const running = names.filter((name) => appRuntime(apps[name]).status === "running").length;
   const selectedName = synced.selectedApp;
   const selectedApp = selectedName ? apps[selectedName] : null;
+  const view = synced.view;
 
-  const lines = [
-    "<b>Control Panel (Single Message)</b>",
-    `Total app: ${names.length}`,
-    `Running: ${running}`,
-    `Selected: ${escapeHtml(selectedName || "-")}`
-  ];
+  const lines = [];
 
-  if (!selectedApp) {
-    lines.push("", "Belum ada app terdaftar.");
-    lines.push("Klik <b>Setup</b> lalu jalankan command add app.");
-  } else {
+  if (view === "main") {
+    lines.push(
+      "💻 <b>Control Panel Utama</b>",
+      `Total app: ${names.length}`,
+      `Running: ${running}`
+    );
+    if (names.length === 0) {
+      lines.push("", "Belum ada app terdaftar.", "Klik <b>➕ Add App</b> untuk menyetel bot.");
+    } else {
+      lines.push("", "Pilih aplikasi di bawah ini untuk mengatur:");
+    }
+  } else if (view === "app" && selectedApp) {
     const runtime = selectedApp.runtime || {};
     lines.push(
+      `📱 <b>Menu Aplikasi: ${escapeHtml(selectedName)}</b>`,
+      `Status: <b>${escapeHtml(runtime.status || "stopped")}</b>`,
+      `PID: ${escapeHtml(String(runtime.pid || "-"))}`,
+      `Branch: ${escapeHtml(selectedApp.branch || "-")}`,
+      `Repo: <code>${escapeHtml(selectedApp.repo || "-")}</code>`,
+      `Deploy Terakhir: ${escapeHtml(selectedApp.lastDeployAt || "-")}`
+    );
+  } else if (view === "settings" && selectedApp) {
+    const runtime = selectedApp.runtime || {};
+    lines.push(
+      `⚙️ <b>Menu Pengaturan: ${escapeHtml(selectedName)}</b>`,
+      `Status saat ini: ${escapeHtml(runtime.status || "stopped")}`,
       "",
-      "<b>App Detail</b>",
-      `status: <b>${escapeHtml(runtime.status || "stopped")}</b>`,
-      `pid: ${escapeHtml(String(runtime.pid || "-"))}`,
-      `branch: ${escapeHtml(selectedApp.branch || "-")}`,
-      `repo: <code>${escapeHtml(selectedApp.repo || "-")}</code>`,
-      `lastDeployAt: ${escapeHtml(selectedApp.lastDeployAt || "-")}`
+      "Konfigurasi aktif:",
+      `cmd install: <code>${escapeHtml(selectedApp.installCommand || "npm install")}</code>`,
+      `cmd build: <code>${escapeHtml(selectedApp.buildCommand || "-")}</code>`,
+      `cmd start: <code>${escapeHtml(selectedApp.startCommand || "npm start")}</code>`
     );
   }
 
   if (synced.output && synced.output.trim()) {
-    lines.push("", "<b>Output</b>");
+    lines.push("", "💬 <b>Output Terakhir</b>");
     if (synced.outputIsHtml) {
       lines.push(synced.output);
     } else {
       lines.push(`<pre>${escapeHtml(clip(synced.output, 1700))}</pre>`);
     }
-  } else {
-    lines.push("", "Gunakan tombol aksi di bawah.");
   }
 
   if (synced.confirmRemove && selectedName) {
-    lines.push("", `<b>Konfirmasi hapus app:</b> ${escapeHtml(selectedName)}`);
+    lines.push("", `⚠️ <b>Konfirmasi penghapusan app:</b> ${escapeHtml(selectedName)}`);
   }
 
   return lines.join("\n");
@@ -373,74 +388,84 @@ function panelKeyboard(state) {
   const synced = syncPanelStateWithApps(state);
   const apps = db.getApps();
   const names = Object.keys(apps).sort();
-  const rows = [
-    [
-      { text: "Refresh", callback_data: "panel:refresh" },
-      { text: "VPS", callback_data: "panel:vps" },
-      { text: "Add App", callback_data: "panel:addapp:start" }
-    ]
-  ];
+  const view = synced.view;
+  const rows = [];
 
-  for (let i = 0; i < names.length; i += 2) {
-    const chunk = names.slice(i, i + 2).map((name) => {
-      const runtime = appRuntime(apps[name]);
-      const selected = name === synced.selectedApp ? "✅ " : "";
-      return {
-        text: `${selected}${name} [${runtime.status}]`,
-        callback_data: `panel:sel:${callbackAppName(name)}`
-      };
-    });
-    rows.push(chunk);
-  }
-
-  if (synced.selectedApp && apps[synced.selectedApp]) {
+  if (view === "main") {
     rows.push([
-      { text: "Status", callback_data: "panel:run:status" },
-      { text: "Vars", callback_data: "panel:run:vars" },
-      { text: "Logs 80", callback_data: "panel:run:log80" },
-      { text: "Logs 200", callback_data: "panel:run:log200" }
-    ]);
-    rows.push([
-      { text: "Start", callback_data: "panel:run:start" },
-      { text: "Stop", callback_data: "panel:run:stop" },
-      { text: "Restart", callback_data: "panel:run:restart" }
-    ]);
-    rows.push([
-      { text: "Deploy", callback_data: "panel:run:deploy" },
-      { text: "Deploy+Restart", callback_data: "panel:run:deployr" },
-      { text: "Update", callback_data: "panel:run:update" }
-    ]);
-    rows.push([
-      { text: "Edit Repo", callback_data: "panel:edit:repo" },
-      { text: "Edit Branch", callback_data: "panel:edit:branch" }
-    ]);
-    rows.push([
-      { text: "Cmd Install", callback_data: "panel:edit:cmd:install" },
-      { text: "Cmd Build", callback_data: "panel:edit:cmd:build" },
-      { text: "Cmd Start", callback_data: "panel:edit:cmd:start" }
-    ]);
-    rows.push([
-      { text: "Set Env Var", callback_data: "panel:edit:setvar" },
-      { text: "Del Env Var", callback_data: "panel:edit:delvar" }
+      { text: "🔄 Refresh", callback_data: "panel:refresh" },
+      { text: "🖥️ VPS Info", callback_data: "panel:vps" },
+      { text: "➕ Add App", callback_data: "panel:addapp:start" }
     ]);
 
+    for (let i = 0; i < names.length; i += 2) {
+      const chunk = names.slice(i, i + 2).map((name) => {
+        const runtime = appRuntime(apps[name]);
+        const circle = runtime.status === "running" ? "🟢" : "🔴";
+        return {
+          text: `${circle} ${name}`,
+          callback_data: `panel:sel:${callbackAppName(name)}`
+        };
+      });
+      rows.push(chunk);
+    }
+
+    rows.push([
+      { text: "🤖 Update Bot", callback_data: "panel:bot:update" },
+      { text: "⚡ Restart Bot", callback_data: "panel:bot:restart" }
+    ]);
+  } else if (view === "app" && synced.selectedApp) {
     if (synced.confirmRemove) {
       rows.push([
-        { text: "Confirm Remove DB", callback_data: "panel:run:rmkeep" },
-        { text: "Confirm Remove Files", callback_data: "panel:run:rmfiles" }
+        { text: "⚠️ Hapus DB Saja", callback_data: "panel:run:rmkeep" },
+        { text: "⚠️ Hapus DB & File", callback_data: "panel:run:rmfiles" }
       ]);
-      rows.push([{ text: "Cancel Remove", callback_data: "panel:run:rmcancel" }]);
+      rows.push([{ text: "Batal Hapus ✖️", callback_data: "panel:run:rmcancel" }]);
     } else {
-      rows.push([{ text: "Remove", callback_data: "panel:run:remove" }]);
+      rows.push([
+        { text: "🟢 Start", callback_data: "panel:run:start" },
+        { text: "🔴 Stop", callback_data: "panel:run:stop" },
+        { text: "🔄 Restart", callback_data: "panel:run:restart" }
+      ]);
+      rows.push([
+        { text: "🚀 Deploy", callback_data: "panel:run:deploy" },
+        { text: "📦 Update", callback_data: "panel:run:update" }
+      ]);
+      rows.push([
+        { text: "📋 Logs 80", callback_data: "panel:run:log80" },
+        { text: "📋 Logs 200", callback_data: "panel:run:log200" },
+        { text: "⚙️ Settings", callback_data: "panel:nav:settings" }
+      ]);
+      rows.push([
+        { text: "🔙 Kembali", callback_data: "panel:nav:main" },
+        { text: "🗑️ Hapus App", callback_data: "panel:run:remove" }
+      ]);
     }
-  } else {
+  } else if (view === "settings" && synced.selectedApp) {
     rows.push([
-      { text: "Update Bot", callback_data: "panel:bot:update" },
-      { text: "Restart Bot", callback_data: "panel:bot:restart" }
+      { text: "✏️ Edit Repo", callback_data: "panel:edit:repo" },
+      { text: "✏️ Edit Branch", callback_data: "panel:edit:branch" }
+    ]);
+    rows.push([
+      { text: "🛠 Cmd Install", callback_data: "panel:edit:cmd:install" },
+      { text: "🛠 Cmd Build", callback_data: "panel:edit:cmd:build" },
+      { text: "🛠 Cmd Start", callback_data: "panel:edit:cmd:start" }
+    ]);
+    rows.push([
+      { text: "🔑 Set Env Var", callback_data: "panel:edit:setvar" },
+      { text: "🗑 Del Env Var", callback_data: "panel:edit:delvar" },
+      { text: "📜 Lihat Vars", callback_data: "panel:run:vars" }
+    ]);
+    rows.push([
+      { text: "🔙 Kembali ke App", callback_data: "panel:nav:app" }
     ]);
   }
 
-  rows.push([{ text: "Clear Output", callback_data: "panel:clear" }]);
+  // Always at the bottom
+  if (synced.output && synced.output.trim()) {
+    rows.push([{ text: "✖️ Bersihkan Output", callback_data: "panel:clear" }]);
+  }
+
   return {
     inline_keyboard: rows
   };
@@ -1315,7 +1340,7 @@ bot.command("removeapp", async (ctx) => {
 
 bot.action("panel:home", async (ctx) => {
   await answerCallback(ctx);
-  await renderPanel(ctx, { confirmRemove: false });
+  await renderPanel(ctx, { confirmRemove: false, view: "main", selectedApp: null, output: "", outputIsHtml: false });
 });
 
 bot.action("panel:refresh", async (ctx) => {
@@ -1404,8 +1429,11 @@ bot.action(/^panel:sel:(.+)$/, async (ctx) => {
   const appName = parseCallbackAppName(ctx.match[1]);
   await answerCallback(ctx);
   await renderPanel(ctx, {
+    view: "app",
     selectedApp: appName,
-    confirmRemove: false
+    confirmRemove: false,
+    output: "",
+    outputIsHtml: false
   });
 });
 
@@ -1414,9 +1442,30 @@ bot.action(/^panel:app:(.+)$/, async (ctx) => {
   const appName = parseCallbackAppName(ctx.match[1]);
   await answerCallback(ctx);
   await renderPanel(ctx, {
+    view: "app",
     selectedApp: appName,
-    confirmRemove: false
+    confirmRemove: false,
+    output: "",
+    outputIsHtml: false
   });
+});
+
+bot.action(/^panel:nav:(main|app|settings)$/, async (ctx) => {
+  const targetView = ctx.match[1];
+  await answerCallback(ctx);
+
+  const patch = {
+    view: targetView,
+    confirmRemove: false,
+    output: "",
+    outputIsHtml: false
+  };
+
+  if (targetView === "main") {
+    patch.selectedApp = null;
+  }
+
+  await renderPanel(ctx, patch);
 });
 
 bot.action(
