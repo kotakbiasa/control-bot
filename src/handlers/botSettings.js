@@ -250,6 +250,53 @@ function register(bot, deps) {
         await ctx.reply("📦 <b>Restore Backup</b>\n\nKirim file <code>.zip</code> backup ke chat ini untuk memulai proses restore.\n\nFile backup yang valid berisi: db.json, .env, dan/atau app-specific .env files.", { parse_mode: "HTML" });
     });
 
+    // === PIN Security ===
+    bot.action("panel:bot:setpin", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        const settings = db.getSettings();
+        const hasPin = !!settings.pin;
+        if (hasPin) {
+            await ctx.reply("🔒 <b>PIN sudah diset.</b>\n\nPilih aksi:", {
+                parse_mode: "HTML",
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "🔄 Ganti PIN", callback_data: "panel:pin:change" }, { text: "🗑 Hapus PIN", callback_data: "panel:pin:remove" }],
+                        [{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]
+                    ]
+                }
+            });
+        } else {
+            chatInputState.set(chatId, { step: "SET_PIN", data: {} });
+            await ctx.reply("🔒 <b>Set PIN Keamanan</b>\n\nBalas dengan PIN (4-8 digit angka):\n\n<i>PIN akan diminta saat aksi berbahaya (hapus app, restore, restart bot).</i>", { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+        }
+    });
+
+    bot.action("panel:pin:change", async (ctx) => {
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        chatInputState.set(chatId, { step: "SET_PIN", data: {} });
+        await ctx.reply("🔒 Balas dengan PIN baru (4-8 digit angka):", { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+    });
+
+    bot.action("panel:pin:remove", async (ctx) => {
+        await answerCallback(ctx);
+        await db.updateSettings({ pin: null });
+        const chatId = getChatIdFromCtx(ctx);
+        const output = "✅ PIN keamanan telah dihapus.";
+        setPanelState(chatId, { output, outputIsHtml: false }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
+    // PIN confirmation flow for dangerous actions
+    bot.action(/^panel:pinconfirm:(.+)$/, async (ctx) => {
+        const targetAction = ctx.match[1];
+        await answerCallback(ctx);
+        const chatId = getChatIdFromCtx(ctx);
+        chatInputState.set(chatId, { step: "VERIFY_PIN", data: { targetAction } });
+        await ctx.reply("🔒 Masukkan PIN untuk melanjutkan:", { reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
+    });
+
     bot.action("panel:bot:update", async (ctx) => {
         await answerCallback(ctx, "Updating bot...");
         try {

@@ -44,8 +44,53 @@ class Monitor {
             const report = await this._buildReport();
             await this._sendToAdmins(report);
             await this._checkDiskAlert();
+            await this._checkResourceLimits();
         } catch (err) {
             console.error("[Monitor._run]", err);
+        }
+    }
+
+    async _checkResourceLimits() {
+        const apps = this.db.getApps();
+        for (const name of Object.keys(apps)) {
+            const app = apps[name];
+            const runtime = app.runtime || {};
+            if (runtime.status !== "running" || !runtime.pid) continue;
+            if (!app.maxMemoryMB && !app.maxCpuPercent) continue;
+
+            const usage = await getPidUsage(runtime.pid);
+            if (!usage) continue;
+
+            const rssMB = parseFloat(usage.rss);
+            const cpuPct = parseFloat(usage.cpu);
+            const violations = [];
+
+            if (app.maxMemoryMB && rssMB > app.maxMemoryMB) {
+                violations.push(`RAM ${rssMB.toFixed(1)}MB > limit ${app.maxMemoryMB}MB`);
+            }
+            if (app.maxCpuPercent && cpuPct > app.maxCpuPercent) {
+                violations.push(`CPU ${cpuPct.toFixed(1)}% > limit ${app.maxCpuPercent}%`);
+            }
+
+            if (violations.length > 0) {
+                const msg = [
+                    `⚠️ <b>RESOURCE LIMIT EXCEEDED</b>`,
+                    `App: <b>${escapeHtml(name)}</b>`,
+                    ...violations.map(v => `• ${escapeHtml(v)}`),
+                    "",
+                    "Auto-restarting app..."
+                ].join("\n");
+                await this._sendToAdmins(msg);
+
+                try {
+                    if (this.deps && this.deps.processManager) {
+                        await this.deps.processManager.restart(name);
+                        await this._sendToAdmins(`✅ App <b>${escapeHtml(name)}</b> berhasil di-restart setelah resource limit exceeded.`);
+                    }
+                } catch (err) {
+                    await this._sendToAdmins(`❌ Gagal restart <b>${escapeHtml(name)}</b>: ${escapeHtml(err.message)}`);
+                }
+            }
         }
     }
 

@@ -16,7 +16,7 @@ function register(bot, deps) {
         await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
     });
 
-    bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv|cron|addsched|listsched|delsched)$/, async (ctx) => {
+    bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv|cron|addsched|listsched|delsched|healthcheck|reslimit|mutealert)$/, async (ctx) => {
         const action = ctx.match[1];
         const chatId = getChatIdFromCtx(ctx);
         if (!chatId) return;
@@ -71,11 +71,56 @@ function register(bot, deps) {
             const list = schedules.map((sc, i) => `${i + 1}. <b>${escapeHtml(sc.label)}</b> — <code>${escapeHtml(sc.schedule)}</code>`).join("\n");
             promptText = `🗑 <b>Hapus Scheduled Command</b> untuk <b>${escapeHtml(appName)}</b>\n\n${list || "(kosong)"}\n\nBalas dengan <b>Label</b> yang ingin dihapus:`;
         }
+        else if (action === "healthcheck") {
+            nextStep = "HC_URL";
+            const app = db.getApp(appName);
+            const currentUrl = (app && app.healthCheckUrl) || "belum diset";
+            promptText = `🔍 <b>Health Check</b> untuk <b>${escapeHtml(appName)}</b>\n\nURL saat ini: <code>${escapeHtml(currentUrl)}</code>\n\nBalas dengan <b>URL</b> endpoint (contoh: <code>http://localhost:3000/health</code>)\nAtau ketik <b>off</b> untuk mematikan.`;
+        }
+        else if (action === "reslimit") {
+            nextStep = "RES_LIMIT";
+            const app = db.getApp(appName);
+            const ram = (app && app.maxMemoryMB) || "none";
+            const cpu = (app && app.maxCpuPercent) || "none";
+            promptText = `📊 <b>Resource Limit</b> untuk <b>${escapeHtml(appName)}</b>\n\nSaat ini:\n• Max RAM: <code>${ram}</code> MB\n• Max CPU: <code>${cpu}</code>%\n\nBalas dengan format:\n<code>RAM_MB CPU_PERCENT</code>\nContoh: <code>256 80</code> → Max 256MB RAM, 80% CPU\nAtau ketik <b>off</b> untuk mematikan.`;
+        }
+        else if (action === "mutealert") {
+            await answerCallback(ctx);
+            const app = db.getApp(appName);
+            const newMute = !(app && app.muteAlerts);
+            await db.upsertApp(appName, (existing) => ({ ...existing, muteAlerts: newMute }));
+            const { setPanelState } = require("../panel/state");
+            const output = newMute
+                ? `🔇 Alert untuk <b>${escapeHtml(appName)}</b> di-mute.`
+                : `🔔 Alert untuk <b>${escapeHtml(appName)}</b> diaktifkan.`;
+            setPanelState(chatId, { output, outputIsHtml: true }, db);
+            const { renderPanel } = require("../panel/render");
+            await renderPanel(ctx, {}, deps);
+            return;
+        }
 
         if (nextStep) {
             chatInputState.set(chatId, { step: nextStep, data: { name: appName }, originalMessageId: ctx.callbackQuery.message?.message_id });
             await ctx.reply(promptText, { parse_mode: "HTML", reply_markup: { inline_keyboard: customKeyboard } });
         }
+    });
+
+    // Health check cron quick buttons
+    bot.action(/^panel:hccron:(.+)$/, async (ctx) => {
+        const schedule = ctx.match[1].trim();
+        const chatId = getChatIdFromCtx(ctx);
+        const state = chatInputState.get(chatId) || {};
+        if (state.step !== "HC_CRON" || !state.data.name) { return answerCallback(ctx, "Sesi edit kadaluarsa"); }
+        const appName = state.data.name;
+        const url = state.data.healthCheckUrl;
+        await db.upsertApp(appName, (ex) => ({ ...ex, healthCheckUrl: url, healthCheckSchedule: schedule }));
+        const { healthCheck } = deps;
+        healthCheck.updateCheck(appName, url, schedule);
+        chatInputState.delete(chatId);
+        await answerCallback(ctx, "Health check aktif");
+        const output = `✅ Health check diaktifkan untuk <b>${escapeHtml(appName)}</b>\n<blockquote>URL: <code>${escapeHtml(url)}</code>\nJadwal: <code>${escapeHtml(schedule)}</code></blockquote>`;
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        if (state.originalMessageId) { try { ctx.callbackQuery = { message: { message_id: state.originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
     });
 
     bot.action(/^panel:cron:(.+)$/, async (ctx) => {
@@ -358,6 +403,109 @@ function register(bot, deps) {
                 await ctx.reply(output, { parse_mode: "HTML" });
                 setPanelState(chatId, { output, outputIsHtml: true }, db);
                 if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            // === Health Check 2-step flow ===
+            if (step === "HC_URL") {
+                const val = text.trim();
+                if (val.toLowerCase() === "off" || val.toLowerCase() === "mati") {
+                    await db.upsertApp(data.name, (ex) => ({ ...ex, healthCheckUrl: null, healthCheckSchedule: null }));
+                    const { healthCheck } = deps;
+                    healthCheck.removeCheck(data.name);
+                    chatInputState.delete(chatId);
+                    const output = `✅ Health check untuk <b>${escapeHtml(data.name)}</b> dimatikan.`;
+                    await ctx.reply(output, { parse_mode: "HTML" });
+                    setPanelState(chatId, { output, outputIsHtml: true }, db);
+                    if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                    return;
+                }
+                if (!val.startsWith("http")) { await ctx.reply("URL harus dimulai dengan http:// atau https://. Coba lagi."); return; }
+                data.healthCheckUrl = val;
+                chatInputState.set(chatId, { step: "HC_CRON", data, originalMessageId });
+                await ctx.reply(`URL: <code>${escapeHtml(val)}</code>\n\nSekarang balas dengan <b>jadwal cron</b> untuk pengecekan (contoh: <code>*/5 * * * *</code> = setiap 5 menit):`, {
+                    parse_mode: "HTML", reply_markup: {
+                        inline_keyboard: [
+                            [{ text: "⏱ Tiap 5 Menit", callback_data: "panel:hccron:*/5 * * * *" }, { text: "⏰ Tiap 15 Menit", callback_data: "panel:hccron:*/15 * * * *" }],
+                            [{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]
+                        ]
+                    }
+                });
+                return;
+            }
+
+            if (step === "HC_CRON") {
+                const schedule = text.trim();
+                await db.upsertApp(data.name, (ex) => ({ ...ex, healthCheckUrl: data.healthCheckUrl, healthCheckSchedule: schedule }));
+                const { healthCheck } = deps;
+                healthCheck.updateCheck(data.name, data.healthCheckUrl, schedule);
+                chatInputState.delete(chatId);
+                const output = `✅ Health check diaktifkan untuk <b>${escapeHtml(data.name)}</b>\n<blockquote>URL: <code>${escapeHtml(data.healthCheckUrl)}</code>\nJadwal: <code>${escapeHtml(schedule)}</code></blockquote>`;
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            // === Resource Limit ===
+            if (step === "RES_LIMIT") {
+                const val = text.trim();
+                if (val.toLowerCase() === "off" || val.toLowerCase() === "mati") {
+                    await db.upsertApp(data.name, (ex) => ({ ...ex, maxMemoryMB: null, maxCpuPercent: null }));
+                    chatInputState.delete(chatId);
+                    const output = `✅ Resource limit untuk <b>${escapeHtml(data.name)}</b> dimatikan.`;
+                    await ctx.reply(output, { parse_mode: "HTML" });
+                    setPanelState(chatId, { output, outputIsHtml: true }, db);
+                    if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                    return;
+                }
+                const parts = val.split(/\s+/);
+                const ram = parseInt(parts[0], 10);
+                const cpu = parseInt(parts[1], 10);
+                if (isNaN(ram) || isNaN(cpu) || ram <= 0 || cpu <= 0) {
+                    await ctx.reply("Format salah. Gunakan: <code>RAM_MB CPU_PERCENT</code> (contoh: <code>256 80</code>) atau ketik <b>off</b>.", { parse_mode: "HTML" });
+                    return;
+                }
+                await db.upsertApp(data.name, (ex) => ({ ...ex, maxMemoryMB: ram, maxCpuPercent: cpu }));
+                chatInputState.delete(chatId);
+                const output = `✅ Resource limit untuk <b>${escapeHtml(data.name)}</b>:\n• Max RAM: <code>${ram}</code> MB\n• Max CPU: <code>${cpu}</code>%`;
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            // === PIN Security ===
+            if (step === "SET_PIN") {
+                const pin = text.trim();
+                if (!/^\d{4,8}$/.test(pin)) { await ctx.reply("PIN harus 4-8 digit angka. Coba lagi."); return; }
+                const crypto = require("crypto");
+                const hash = crypto.createHash("sha256").update(pin).digest("hex");
+                await db.updateSettings({ pin: hash });
+                chatInputState.delete(chatId);
+                const output = "✅ PIN keamanan berhasil diset!";
+                await ctx.reply(output);
+                return;
+            }
+
+            if (step === "VERIFY_PIN") {
+                const pin = text.trim();
+                const crypto = require("crypto");
+                const hash = crypto.createHash("sha256").update(pin).digest("hex");
+                const settings = db.getSettings();
+                if (hash !== settings.pin) { await ctx.reply("❌ PIN salah. Coba lagi atau Cancel ❌."); return; }
+                chatInputState.delete(chatId);
+                // Replay the target action
+                const targetAction = data.targetAction;
+                if (targetAction) {
+                    ctx.callbackQuery = ctx.callbackQuery || {};
+                    ctx.callbackQuery.data = targetAction;
+                    ctx.match = [targetAction, targetAction.split(":").pop()];
+                    await ctx.reply("✅ PIN verified. Melanjutkan aksi...");
+                    // Re-emit the callback
+                    try { await bot.handleUpdate({ callback_query: { ...ctx.callbackQuery, data: targetAction, from: ctx.from, message: ctx.callbackQuery.message } }); }
+                    catch (e) { console.error("[PIN verify]", e); }
+                }
                 return;
             }
 

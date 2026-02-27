@@ -9,6 +9,7 @@ const { ProcessManager } = require("./processManager");
 const { Monitor } = require("./services/monitor");
 const { WebhookServer } = require("./services/webhook");
 const { AuditLog } = require("./services/auditLog");
+const { HealthCheck } = require("./services/healthCheck");
 const { ensureDir, escapeHtml, withinDir } = require("./utils");
 
 // --- Directories ---
@@ -103,8 +104,9 @@ const monitor = new Monitor({ db, bot, ADMIN_IDS });
 
 // --- Shared deps for all handlers ---
 const auditLog = new AuditLog({ DATA_DIR });
+const healthCheck = new HealthCheck({ db, bot, ADMIN_IDS });
 const deps = {
-  db, bot, processManager, deployer, monitor, auditLog,
+  db, bot, processManager, deployer, monitor, auditLog, healthCheck,
   ADMIN_IDS, ROOT_DIR, DATA_DIR, DB_PATH, DEPLOYMENTS_DIR, LOGS_DIR,
   chatInputState, busyApps,
   isAdmin, withAppLock, withinDir
@@ -124,6 +126,26 @@ bot.use((ctx, next) => {
     auditLog.log(fromId, "command", ctx.message.text.split(" ")[0]);
   } else if (ctx.callbackQuery && ctx.callbackQuery.data) {
     auditLog.log(fromId, "action", ctx.callbackQuery.data);
+  }
+  return next();
+});
+
+// Rate limiter — max 30 actions per minute per user
+const rateLimitMap = new Map();
+bot.use((ctx, next) => {
+  const fromId = ctx.from ? String(ctx.from.id) : null;
+  if (!fromId) return next();
+  const now = Date.now();
+  let bucket = rateLimitMap.get(fromId);
+  if (!bucket || now - bucket.windowStart > 60000) {
+    bucket = { windowStart: now, count: 0 };
+    rateLimitMap.set(fromId, bucket);
+  }
+  bucket.count++;
+  if (bucket.count > 30) {
+    if (ctx.callbackQuery) { try { ctx.answerCbQuery("⏳ Rate limit exceeded. Tunggu sebentar.", true); } catch { } }
+    else if (ctx.message) { try { ctx.reply("⏳ Rate limit exceeded. Tunggu 1 menit."); } catch { } }
+    return;
   }
   return next();
 });

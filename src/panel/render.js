@@ -61,7 +61,7 @@ function panelText(state, deps) {
             statusStr += ` (uptime: ${formatUptime(elapsedSeconds)})`;
         }
 
-        lines.push(
+        lines.push(...[
             `⚙️ <b>Menu Pengaturan: ${escapeHtml(selectedName)}</b>`,
             `Status saat ini: <b>${escapeHtml(statusStr)}</b>`,
             "",
@@ -73,8 +73,12 @@ function panelText(state, deps) {
             `<b>Auto-Restart:</b> <code>${escapeHtml(selectedApp.cronSchedule || "Mati")}</code>`,
             `<b>Webhook:</b> ${selectedApp.webhookSecret ? "✅ Aktif" : "🔴 Mati"}`,
             `<b>Scheduled Cmd:</b> ${(selectedApp.scheduledCommands || []).length}`,
+            `<b>Health Check:</b> ${selectedApp.healthCheckUrl ? `<code>${escapeHtml(selectedApp.healthCheckUrl)}</code>` : "Mati"}`,
+            selectedApp.maxMemoryMB ? `<b>Max RAM:</b> ${selectedApp.maxMemoryMB}MB` : null,
+            selectedApp.maxCpuPercent ? `<b>Max CPU:</b> ${selectedApp.maxCpuPercent}%` : null,
+            `<b>Alert:</b> ${selectedApp.muteAlerts ? "🔇 Muted" : "🔔 On"}`,
             "</blockquote>"
-        );
+        ].filter(Boolean));
     } else if (view === "bot_settings") {
         const dbSettings = db.getSettings();
         const dynamicAdminsCount = (dbSettings.admins || []).length;
@@ -163,7 +167,8 @@ function panelKeyboard(state, deps) {
         }
 
         rows.push([
-            { text: "⚙️ Pengaturan Bot", callback_data: "panel:nav:bot_settings" }
+            { text: "⚙️ Pengaturan Bot", callback_data: "panel:nav:bot_settings" },
+            { text: "🔄 Rolling Restart", callback_data: "panel:rollingrestart" }
         ]);
     } else if (view === "bot_settings") {
         rows.push([
@@ -189,6 +194,9 @@ function panelKeyboard(state, deps) {
         rows.push([
             { text: "📝 Audit Log", callback_data: "panel:bot:auditlog" },
             { text: "📦 Restore Backup", callback_data: "panel:bot:restore" }
+        ]);
+        rows.push([
+            { text: db.getSettings().pin ? "🔒 PIN (Aktif)" : "🔓 Set PIN", callback_data: "panel:bot:setpin" }
         ]);
         rows.push([
             { text: "🤖 Update Bot", callback_data: "panel:bot:update" },
@@ -259,6 +267,13 @@ function panelKeyboard(state, deps) {
         rows.push([
             { text: "🔗 Webhook", callback_data: "panel:app:webhooktoggle" },
             { text: "⏰ Add Schedule", callback_data: "panel:edit:addsched" }
+        ]);
+        rows.push([
+            { text: "🔍 Health Check", callback_data: "panel:edit:healthcheck" },
+            { text: "📊 Resource Limit", callback_data: "panel:edit:reslimit" }
+        ]);
+        rows.push([
+            { text: apps[synced.selectedApp]?.muteAlerts ? "🔔 Unmute Alert" : "🔇 Mute Alert", callback_data: "panel:edit:mutealert" }
         ]);
         const selectedAppData = apps[synced.selectedApp];
         if (selectedAppData && selectedAppData.scheduledCommands && selectedAppData.scheduledCommands.length > 0) {

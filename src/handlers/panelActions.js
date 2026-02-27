@@ -100,6 +100,44 @@ function register(bot, deps) {
         }
     });
 
+    bot.action("panel:rollingrestart", async (ctx) => {
+        await answerCallback(ctx, "Rolling restart dimulai...");
+        const { processManager } = deps;
+        const apps = db.getApps();
+        const runningApps = Object.keys(apps).filter(n => {
+            const rt = apps[n].runtime || {};
+            return rt.status === "running" && rt.pid;
+        });
+
+        if (runningApps.length === 0) {
+            setPanelState(getChatIdFromCtx(ctx), { output: "Tidak ada app yang sedang running.", outputIsHtml: false }, db);
+            await renderPanel(ctx, {}, deps);
+            return;
+        }
+
+        const results = [];
+        for (const name of runningApps) {
+            try {
+                const pid = await processManager.restart(name);
+                results.push(`✅ ${escapeHtml(name)} → PID ${pid}`);
+            } catch (err) {
+                results.push(`❌ ${escapeHtml(name)} → ${escapeHtml(err.message)}`);
+            }
+            // Delay 3s between restarts
+            if (runningApps.indexOf(name) < runningApps.length - 1) {
+                await new Promise(r => setTimeout(r, 3000));
+            }
+        }
+
+        const output = [
+            "🔄 <b>Rolling Restart Selesai</b>",
+            "",
+            ...results
+        ].join("\n");
+        setPanelState(getChatIdFromCtx(ctx), { output, outputIsHtml: true }, db);
+        await renderPanel(ctx, {}, deps);
+    });
+
     bot.action("panel:cancel_input", async (ctx) => {
         const chatId = getChatIdFromCtx(ctx);
         if (chatId) { chatInputState.delete(chatId); }
