@@ -21,7 +21,7 @@ function panelText(state, deps) {
         for (const name of names) { const app = apps[name]; if (app.tags) app.tags.forEach(t => allTags.add(t)); }
         const pinnedCount = names.filter(n => apps[n].pinned).length;
 
-        lines.push(
+        lines.push(...[
             "💻 <b>Control Panel Utama</b>",
             "<blockquote>",
             `<b>Total app:</b> ${names.length}`,
@@ -29,7 +29,7 @@ function panelText(state, deps) {
             pinnedCount > 0 ? `<b>Pinned:</b> ${pinnedCount}` : null,
             allTags.size > 0 ? `<b>Tags:</b> ${[...allTags].map(t => `#${escapeHtml(t)}`).join(" ")}` : null,
             "</blockquote>"
-        ).filter(Boolean);
+        ].filter(Boolean));
         if (names.length === 0) {
             lines.push("", "Belum ada app terdaftar.", "Klik <b>➕ Add App</b> untuk menyetel bot.");
         } else {
