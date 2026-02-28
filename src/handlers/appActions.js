@@ -225,16 +225,22 @@ function register(bot, deps) {
 
                     let hasSent = false;
                     if (fs.existsSync(outPath)) {
-                        await ctx.replyWithDocument({ source: outPath, filename: `${appName}-out.log` }, { caption: `Log output untuk app: ${appName}` });
-                        hasSent = true;
+                        if (fs.statSync(outPath).size > 0) {
+                            await ctx.replyWithDocument({ source: outPath, filename: `${appName}-out.log` }, { caption: `Log output untuk app: ${appName}` });
+                            hasSent = true;
+                        }
                     }
                     if (fs.existsSync(errPath)) {
-                        await ctx.replyWithDocument({ source: errPath, filename: `${appName}-err.log` }, { caption: `Log error untuk app: ${appName}` });
-                        hasSent = true;
+                        if (fs.statSync(errPath).size > 0) {
+                            await ctx.replyWithDocument({ source: errPath, filename: `${appName}-err.log` }, { caption: `Log error untuk app: ${appName}` });
+                            hasSent = true;
+                        }
                     }
 
                     if (hasSent) {
                         await renderPanel(ctx, { output: `File log berhasil dikirim.`, outputIsHtml: false, confirmRemove: false }, deps);
+                    } else {
+                        await renderPanel(ctx, { output: `File log kosong, tidak ada isi untuk dikirim.`, outputIsHtml: false, confirmRemove: false }, deps);
                     }
                     return;
                 }
