@@ -30,7 +30,7 @@ function makeNewApp({ name, repo, branch }, deploymentsDir) {
 
 async function removeAppInternal(name, opts, deps) {
     const { deleteFiles = false, force = false } = opts || {};
-    const { db, processManager, deploymentsDir, logsDir, withinDir } = deps;
+    const { db, processManager, DEPLOYMENTS_DIR, LOGS_DIR, withinDir } = deps;
 
     const app = db.getApp(name);
     if (!app) {
@@ -48,11 +48,11 @@ async function removeAppInternal(name, opts, deps) {
     }
 
     if (deleteFiles) {
-        if (app.directory && withinDir(deploymentsDir, app.directory)) {
+        if (app.directory && withinDir(DEPLOYMENTS_DIR, app.directory)) {
             fs.rmSync(app.directory, { recursive: true, force: true });
         }
-        const outLog = path.join(logsDir, `${name}.out.log`);
-        const errLog = path.join(logsDir, `${name}.err.log`);
+        const outLog = path.join(LOGS_DIR, `${name}.out.log`);
+        const errLog = path.join(LOGS_DIR, `${name}.err.log`);
         if (fs.existsSync(outLog)) fs.rmSync(outLog, { force: true });
         if (fs.existsSync(errLog)) fs.rmSync(errLog, { force: true });
     }
