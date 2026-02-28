@@ -242,6 +242,9 @@ function panelKeyboard(state, deps) {
                 { text: "📋 Logs 200", callback_data: "panel:run:log200" }
             ]);
             rows.push([
+                { text: "📄 Unduh Logs", callback_data: "panel:run:logfile" }
+            ]);
+            rows.push([
                 { text: "📁 File Manager", callback_data: "panel:fm:open" },
                 { text: "⚙️ Settings", callback_data: `panel:nav:settings:${callbackAppName(synced.selectedApp)}` }
             ]);

@@ -149,7 +149,7 @@ function register(bot, deps) {
     });
 
     bot.action(
-        /^panel:run:(status|vars|log80|log200|start|stop|restart|deploy|deployr|update|remove|rmkeep|rmfiles|rmcancel|pin)$/,
+        /^panel:run:(status|vars|log80|log200|logfile|start|stop|restart|deploy|deployr|update|remove|rmkeep|rmfiles|rmcancel|pin)$/,
         async (ctx) => {
             const action = ctx.match[1];
             try {
@@ -207,6 +207,35 @@ function register(bot, deps) {
                     const logs = processManager.readLogs(appName, lines);
                     const text = [`App: ${appName}`, `stdout (${lines} lines):`, logs.out || "(kosong)", "", `stderr (${lines} lines):`, logs.err || "(kosong)"].join("\n");
                     await renderPanel(ctx, { output: clip(text, 2600), outputIsHtml: false, confirmRemove: false }, deps);
+                    return;
+                }
+
+                if (action === "logfile") {
+                    await answerCallback(ctx, "Mengirim file log...");
+
+                    const fs = require("fs");
+                    const path = require("path");
+                    const outPath = path.join(processManager.logsDir, `${appName}.out.log`);
+                    const errPath = path.join(processManager.logsDir, `${appName}.err.log`);
+
+                    if (!fs.existsSync(outPath) && !fs.existsSync(errPath)) {
+                        await renderPanel(ctx, { output: `File log tidak ditemukan untuk app ${appName}`, outputIsHtml: false, confirmRemove: false }, deps);
+                        return;
+                    }
+
+                    let hasSent = false;
+                    if (fs.existsSync(outPath)) {
+                        await ctx.replyWithDocument({ source: outPath, filename: `${appName}-out.log` }, { caption: `Log output untuk app: ${appName}` });
+                        hasSent = true;
+                    }
+                    if (fs.existsSync(errPath)) {
+                        await ctx.replyWithDocument({ source: errPath, filename: `${appName}-err.log` }, { caption: `Log error untuk app: ${appName}` });
+                        hasSent = true;
+                    }
+
+                    if (hasSent) {
+                        await renderPanel(ctx, { output: `File log berhasil dikirim.`, outputIsHtml: false, confirmRemove: false }, deps);
+                    }
                     return;
                 }
 
