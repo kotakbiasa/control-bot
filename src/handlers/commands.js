@@ -42,6 +42,8 @@ function register(bot, deps) {
                 "/restart <nama> - restart app",
                 "/logs <nama> [lines] - lihat tail log stdout/stderr",
                 "/run <nama> <command...> - jalankan command manual di folder app",
+                "/ls <nama> [path] - lihat daftar file app",
+                "/read <nama> <file> - baca file app",
                 "",
                 "Catatan: Tambah app dan edit config (repo, branch, env, dll) sekarang bisa dilakukan langsung melalui tombol di /panel.",
                 "Semua data tersimpan di data/db.json"
@@ -313,6 +315,92 @@ function register(bot, deps) {
             const result = await runShell(command, { cwd: app.directory });
             const combined = [result.stdout, result.stderr].filter(Boolean).join("\n");
             await ctx.reply(clip(combined || "(tidak ada output)", 3500));
+        } catch (err) { await replyError(ctx, err); }
+    });
+
+    bot.command("ls", async (ctx) => {
+        try {
+            const fs = require("fs");
+            const path = require("path");
+            const args = parseCommandArgs(ctx);
+            const [name, targetPath = "."] = args;
+            if (!name) { await ctx.reply("Format: /ls <nama_app> [path_relatif]"); return; }
+
+            const app = db.getApp(name);
+            if (!app) { await ctx.reply(`App "${name}" tidak ditemukan.`); return; }
+            if (!fs.existsSync(app.directory)) { await ctx.reply(`Folder app belum ada: ${app.directory}`); return; }
+
+            const { withinDir } = require("../utils");
+            const fullPath = path.resolve(app.directory, targetPath);
+            if (!withinDir(app.directory, fullPath) && app.directory !== fullPath) {
+                await ctx.reply("Akses ditolak: di luar direktori app.");
+                return;
+            }
+
+            if (!fs.existsSync(fullPath)) {
+                await ctx.reply(`Path tidak ditemukan: ${targetPath}`);
+                return;
+            }
+
+            const stat = fs.statSync(fullPath);
+            if (!stat.isDirectory()) {
+                await ctx.reply(`${targetPath} bukan direktori.`);
+                return;
+            }
+
+            const items = fs.readdirSync(fullPath, { withFileTypes: true });
+            if (items.length === 0) {
+                await ctx.reply(`Folder ${targetPath} kosong.`);
+                return;
+            }
+
+            const lines = items.map(item => {
+                const icon = item.isDirectory() ? "📁" : "📄";
+                return `${icon} ${item.name}`;
+            });
+
+            await ctx.reply(`Isi dari <b>${escapeHtml(name)}</b>: <code>${escapeHtml(targetPath)}</code>\n\n${lines.join("\n")}`, { parse_mode: "HTML" });
+        } catch (err) { await replyError(ctx, err); }
+    });
+
+    bot.command("read", async (ctx) => {
+        try {
+            const fs = require("fs");
+            const path = require("path");
+            const args = parseCommandArgs(ctx);
+            const [name, targetPath] = args;
+            if (!name || !targetPath) { await ctx.reply("Format: /read <nama_app> <path_relatif_file>"); return; }
+
+            const app = db.getApp(name);
+            if (!app) { await ctx.reply(`App "${name}" tidak ditemukan.`); return; }
+            if (!fs.existsSync(app.directory)) { await ctx.reply(`Folder app belum ada: ${app.directory}`); return; }
+
+            const { withinDir } = require("../utils");
+            const fullPath = path.resolve(app.directory, targetPath);
+            if (!withinDir(app.directory, fullPath)) {
+                await ctx.reply("Akses ditolak: di luar direktori app.");
+                return;
+            }
+
+            if (!fs.existsSync(fullPath)) {
+                await ctx.reply(`File tidak ditemukan: ${targetPath}`);
+                return;
+            }
+
+            const stat = fs.statSync(fullPath);
+            if (!stat.isFile()) {
+                await ctx.reply(`${targetPath} bukan file.`);
+                return;
+            }
+
+            if (stat.size > 1024 * 1024 * 2) {
+                await ctx.reply(`File terlalu besar (${(stat.size / 1024 / 1024).toFixed(2)}MB). Maksimal 2MB.`);
+                return;
+            }
+
+            const content = fs.readFileSync(fullPath, "utf8");
+            const safeContent = escapeHtml(clip(content, 3500));
+            await ctx.reply(`Isi file <b>${escapeHtml(name)}</b>: <code>${escapeHtml(targetPath)}</code>\n\n<pre>${safeContent}</pre>`, { parse_mode: "HTML" });
         } catch (err) { await replyError(ctx, err); }
     });
 

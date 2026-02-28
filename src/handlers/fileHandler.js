@@ -15,7 +15,7 @@ function register(bot, deps) {
 
         const stateInfo = chatInputState.get(chatId);
 
-        // Only handle if user is in CONFIRM_RESTORE flow or file is a zip
+        // Only handle if user is in CONFIRM_RESTORE flow or file is a zip/py
         if (!stateInfo || stateInfo.step !== "AWAIT_RESTORE") {
             // Auto-detect backup zip
             if (doc.file_name && doc.file_name.endsWith(".zip") && doc.file_name.includes("backup")) {
@@ -33,6 +33,24 @@ function register(bot, deps) {
                 );
                 return;
             }
+
+            // Auto-detect deployable files
+            if (doc.file_name && (doc.file_name.endsWith(".zip") || doc.file_name.endsWith(".py"))) {
+                chatInputState.set(chatId, { step: "AWAIT_APP_NAME_FOR_FILE", data: { fileId: doc.file_id, fileName: doc.file_name } });
+                await ctx.reply(
+                    `📦 Terdeteksi file untuk di-deploy: <b>${escapeHtml(doc.file_name)}</b>\n\nSilakan ketik <b>Nama App</b> (huruf, angka, strip, underscore) untuk aplikasi ini tanpa spasi.\nAtau klik batal di bawah.`,
+                    {
+                        parse_mode: "HTML",
+                        reply_markup: {
+                            inline_keyboard: [
+                                [{ text: "❌ Batal", callback_data: "panel:cancel_input" }]
+                            ]
+                        }
+                    }
+                );
+                return;
+            }
+
             return next();
         }
     });

@@ -46,6 +46,108 @@ function register(bot, deps) {
         await renderPanel(ctx, patch, deps);
     });
 
+    bot.action(/^panel:fm:(open|dir|read|page)(?::(.+))?$/, async (ctx) => {
+        const action = ctx.match[1];
+        const payload = ctx.match[2];
+        const chatId = getChatIdFromCtx(ctx);
+        if (!chatId) return;
+
+        const selected = selectedAppFromState(chatId, db);
+        if (!selected) {
+            await answerCallback(ctx, "Pilih app dulu");
+            return;
+        }
+
+        const appName = selected.name;
+        const appDir = selected.app.directory;
+        const { setPanelState, getPanelState } = require("../panel/state");
+        const currentState = getPanelState(chatId);
+
+        if (action === "open") {
+            await answerCallback(ctx);
+            await renderPanel(ctx, { view: "file_manager", fmPath: ".", fmPage: 1, output: "", outputIsHtml: false }, deps);
+            return;
+        }
+
+        if (action === "page") {
+            await answerCallback(ctx);
+            const newPage = parseInt(payload, 10) || 1;
+            await renderPanel(ctx, { fmPage: newPage }, deps);
+            return;
+        }
+
+        if (action === "dir") {
+            const fs = require("fs");
+            const path = require("path");
+            const { withinDir } = require("../utils");
+
+            let currentPath = currentState.fmPath || ".";
+            if (payload === "..") {
+                if (currentPath === "." || currentPath === "") {
+                    await answerCallback(ctx, "Sudah di root app.");
+                    return;
+                }
+                currentPath = path.dirname(currentPath);
+                if (currentPath === ".") currentPath = ".";
+            } else {
+                currentPath = path.join(currentPath, payload);
+            }
+
+            const fullPath = path.resolve(appDir, currentPath);
+            if (!withinDir(appDir, fullPath) && appDir !== fullPath) {
+                await answerCallback(ctx, "Akses ditolak");
+                return;
+            }
+
+            if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
+                await answerCallback(ctx, "Direktori tidak valid");
+                return;
+            }
+
+            await answerCallback(ctx);
+            await renderPanel(ctx, { fmPath: currentPath, fmPage: 1, output: "", outputIsHtml: false }, deps);
+            return;
+        }
+
+        if (action === "read") {
+            const fs = require("fs");
+            const path = require("path");
+            const { withinDir, escapeHtml } = require("../utils");
+            const { clip } = require("../panel/helpers");
+
+            const currentPath = currentState.fmPath || ".";
+            const filePath = path.join(currentPath, payload);
+            const fullPath = path.resolve(appDir, filePath);
+
+            if (!withinDir(appDir, fullPath)) {
+                await answerCallback(ctx, "Akses ditolak");
+                return;
+            }
+
+            if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
+                await answerCallback(ctx, "File tidak ditemukan");
+                return;
+            }
+
+            const stat = fs.statSync(fullPath);
+            if (stat.size > 1024 * 1024 * 2) {
+                await answerCallback(ctx, "Terlalu besar (>2MB)", true);
+                return;
+            }
+
+            await answerCallback(ctx);
+            try {
+                const content = fs.readFileSync(fullPath, "utf8");
+                const safeContent = escapeHtml(clip(content, 3000));
+                const output = `📄 <b>Isi File:</b> <code>${escapeHtml(payload)}</code>\n\n<pre>${safeContent}</pre>`;
+                await renderPanel(ctx, { output, outputIsHtml: true }, deps);
+            } catch (err) {
+                await renderPanel(ctx, { output: `Gagal membaca file: ${err.message}`, outputIsHtml: false }, deps);
+            }
+            return;
+        }
+    });
+
     bot.action(
         /^panel:run:(status|vars|log80|log200|start|stop|restart|deploy|deployr|update|remove|rmkeep|rmfiles|rmcancel|pin)$/,
         async (ctx) => {

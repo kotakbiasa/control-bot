@@ -53,6 +53,12 @@ function panelText(state, deps) {
             `<b>Deploy Terakhir:</b> ${escapeHtml(selectedApp.lastDeployAt || "-")}`,
             "</blockquote>"
         );
+    } else if (view === "file_manager" && selectedApp) {
+        const fmPath = state.fmPath || ".";
+        lines.push(
+            `📁 <b>File Manager: ${escapeHtml(selectedName)}</b>`,
+            `Lokasi: <code>${escapeHtml(fmPath)}</code>`
+        );
     } else if (view === "settings" && selectedApp) {
         const runtime = selectedApp.runtime || {};
         let statusStr = runtime.status || "stopped";
@@ -233,7 +239,10 @@ function panelKeyboard(state, deps) {
             ]);
             rows.push([
                 { text: "📋 Logs 80", callback_data: "panel:run:log80" },
-                { text: "📋 Logs 200", callback_data: "panel:run:log200" },
+                { text: "📋 Logs 200", callback_data: "panel:run:log200" }
+            ]);
+            rows.push([
+                { text: "📁 File Manager", callback_data: "panel:fm:open" },
                 { text: "⚙️ Settings", callback_data: `panel:nav:settings:${callbackAppName(synced.selectedApp)}` }
             ]);
             const appData = apps[synced.selectedApp];
@@ -243,6 +252,73 @@ function panelKeyboard(state, deps) {
                 { text: "🗑️ Hapus App", callback_data: "panel:run:remove" }
             ]);
         }
+    } else if (view === "file_manager" && synced.selectedApp) {
+        const fs = require("fs");
+        const path = require("path");
+        const appDir = apps[synced.selectedApp].directory;
+        const fmPath = state.fmPath || ".";
+        const fullPath = path.resolve(appDir, fmPath);
+
+        let items = [];
+        try {
+            if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+                items = fs.readdirSync(fullPath, { withFileTypes: true });
+                // Sort directories first, then files alphabetically
+                items.sort((a, b) => {
+                    if (a.isDirectory() && !b.isDirectory()) return -1;
+                    if (!a.isDirectory() && b.isDirectory()) return 1;
+                    return a.name.localeCompare(b.name);
+                });
+            }
+        } catch (err) {
+            // Ignore if error reading
+        }
+
+        const ITEMS_PER_PAGE = 10;
+        const page = state.fmPage || 1;
+        const totalPages = Math.ceil(items.length / ITEMS_PER_PAGE) || 1;
+        const offset = (page - 1) * ITEMS_PER_PAGE;
+        const paginatedItems = items.slice(offset, offset + ITEMS_PER_PAGE);
+
+        // Map items to buttons, 1 per row for easier reading
+        if (fmPath !== ".") {
+            rows.push([{ text: "📁 .. (Up)", callback_data: "panel:fm:dir:.." }]);
+        }
+
+        for (const item of paginatedItems) {
+            const isDir = item.isDirectory();
+            const icon = isDir ? "📁" : "📄";
+            const btnText = `${icon} ${item.name}${isDir ? "/" : ""}`;
+            let cbData = "";
+
+            // Encode name to handle weird chars if needed, but mostly we send the name
+            // For callback data limits (64 bytes), we must be careful with long names
+            const safeName = item.name.length > 30 ? item.name.substring(0, 30) : item.name;
+            if (isDir) {
+                cbData = `panel:fm:dir:${safeName}`;
+            } else {
+                cbData = `panel:fm:read:${safeName}`;
+            }
+
+            rows.push([{ text: btnText, callback_data: cbData }]);
+        }
+
+        if (items.length === 0 && fmPath === ".") {
+            rows.push([{ text: "Kosong", callback_data: "panel:none" }]);
+        }
+
+        // Pagination buttons
+        if (totalPages > 1) {
+            const pageButtons = [];
+            if (page > 1) pageButtons.push({ text: "⬅️ Prev", callback_data: `panel:fm:page:${page - 1}` });
+            pageButtons.push({ text: `${page} / ${totalPages}`, callback_data: "panel:none" });
+            if (page < totalPages) pageButtons.push({ text: "Next ➡️", callback_data: `panel:fm:page:${page + 1}` });
+            rows.push(pageButtons);
+        }
+
+        rows.push([
+            { text: "🔙 Kembali ke App", callback_data: `panel:nav:app:${callbackAppName(synced.selectedApp)}` }
+        ]);
     } else if (view === "settings" && synced.selectedApp) {
         rows.push([
             { text: "✏️ Edit Repo", callback_data: "panel:edit:repo" },

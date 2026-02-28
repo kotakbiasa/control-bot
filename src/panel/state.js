@@ -10,6 +10,8 @@ function basePanelState() {
         output: "",
         outputIsHtml: false,
         confirmRemove: false,
+        fmPath: ".",
+        fmPage: 1,
         updatedAt: nowIso()
     };
 }
@@ -27,7 +29,8 @@ function syncPanelStateWithApps(state, db) {
     const selectedApp = state.selectedApp && apps[state.selectedApp] ? state.selectedApp : null;
     // Views that don't require a selected app
     const globalViews = ["main", "bot_settings", "vps"];
-    const view = selectedApp || globalViews.includes(state.view) ? state.view : "main";
+    let view = selectedApp || globalViews.includes(state.view) ? state.view : "main";
+    if (view === "file_manager" && !selectedApp) view = "main";
     return {
         ...state,
         selectedApp,

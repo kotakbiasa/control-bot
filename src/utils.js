@@ -33,7 +33,7 @@ function appNameValid(name) {
 }
 
 function repoUrlValid(repo) {
-  return /^[A-Za-z0-9:@._/\-~%+?=&]+$/.test(repo);
+  return /^[A-Za-z0-9:@._/\-~%+?=&]+$/.test(repo) || repo === "local";
 }
 
 function adminIdValid(id) {

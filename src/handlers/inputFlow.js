@@ -151,6 +151,78 @@ function register(bot, deps) {
         const { step, data, originalMessageId } = stateInfo;
 
         try {
+            // === File Deploy ===
+            if (step === "AWAIT_APP_NAME_FOR_FILE") {
+                if (!appNameValid(text)) { await ctx.reply("Nama app hanya boleh huruf, angka, underscore, dash. Coba lagi atau tekan Cancel ❌."); return; }
+                if (text.length > 32) { await ctx.reply("Nama app maksimal 32 karakter. Coba lagi atau tekan Cancel ❌."); return; }
+                if (db.getApp(text)) { await ctx.reply(`App "${text}" sudah ada. Ketik nama lain atau Cancel ❌.`); return; }
+
+                const appName = text;
+                const { fileId, fileName } = data;
+                chatInputState.delete(chatId);
+
+                await ctx.reply(`Sedang memproses file untuk app <b>${escapeHtml(appName)}</b>...`, { parse_mode: "HTML" });
+
+                try {
+                    const link = await ctx.telegram.getFileLink(fileId);
+                    const url = link.href || link;
+                    const https = require("https");
+                    const http = require("http");
+                    const path = require("path");
+                    const fs = require("fs");
+                    const { ensureDir } = require("../utils");
+
+                    const appDir = path.join(DEPLOYMENTS_DIR, appName);
+                    ensureDir(appDir);
+                    const tmpFile = path.join(require("os").tmpdir(), `deploy-${Date.now()}-${fileName}`);
+
+                    await new Promise((resolve, reject) => {
+                        const proto = url.startsWith("https") ? https : http;
+                        proto.get(url, (res) => {
+                            const ws = fs.createWriteStream(tmpFile);
+                            res.pipe(ws);
+                            ws.on("finish", () => { ws.close(); resolve(); });
+                            ws.on("error", reject);
+                        }).on("error", reject);
+                    });
+
+                    let startCmd = "";
+                    if (fileName.endsWith(".zip")) {
+                        const AdmZip = require("adm-zip");
+                        const zip = new AdmZip(tmpFile);
+                        zip.extractAllTo(appDir, true);
+                        fs.unlinkSync(tmpFile);
+                        startCmd = "npm start"; // Default
+                    } else if (fileName.endsWith(".py")) {
+                        fs.renameSync(tmpFile, path.join(appDir, fileName));
+                        startCmd = `python3 ${fileName}`; // Or python
+                    }
+
+                    const app = makeNewApp({ name: appName, repo: "local", branch: "main" }, DEPLOYMENTS_DIR);
+                    app.installCommand = "";
+                    app.buildCommand = "";
+                    app.startCommand = startCmd;
+
+                    await db.upsertApp(appName, app);
+
+                    const msg = [
+                        `✅ App <b>${escapeHtml(appName)}</b> berhasil disiapkan dari file!`,
+                        "<blockquote>",
+                        `<b>File:</b> ${escapeHtml(fileName)}`,
+                        `<b>Start Command:</b> <code>${escapeHtml(startCmd)}</code>`,
+                        "</blockquote>",
+                        "Gunakan /panel untuk mengubah command atau env jika diperlukan, lalu klik Start."
+                    ].join("\n");
+
+                    await ctx.reply(msg, { parse_mode: "HTML" });
+                    setPanelState(chatId, { selectedApp: appName, output: msg, outputIsHtml: true }, db);
+                    await renderPanel(ctx, {}, deps);
+                } catch (err) {
+                    await ctx.reply(`❌ Gagal memproses file: ${escapeHtml(err.message)}`, { parse_mode: "HTML" });
+                }
+                return;
+            }
+
             if (step === "ADDAPP_NAME") {
                 if (!appNameValid(text)) { await ctx.reply("Nama app hanya boleh huruf, angka, underscore, dash. Coba lagi atau tekan Cancel ❌."); return; }
                 if (text.length > 32) { await ctx.reply("Nama app maksimal 32 karakter. Coba lagi atau tekan Cancel ❌."); return; }

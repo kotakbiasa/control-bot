@@ -20,6 +20,10 @@ async function runShell(command, options = {}) {
 }
 
 async function ensureRepo(app, deploymentsDir) {
+  if (app.repo === "local") {
+    return "local (uploaded)";
+  }
+
   const dir = app.directory;
   if (!withinDir(deploymentsDir, dir)) {
     throw new Error(`Direktori app di luar folder deployments: ${dir}`);
