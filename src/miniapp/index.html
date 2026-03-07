@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#d7ecff">
+    <meta name="theme-color" content="#0c1321">
     <title>Control Bot Mini App</title>
     <link rel="stylesheet" href="/miniapp/styles.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -56,7 +56,7 @@
         </section>
 
         <section class="workspace">
-            <aside class="glass rail">
+            <aside class="glass rail view-apps">
                 <div class="section-head">
                     <div>
                         <p class="eyebrow">Apps</p>
@@ -68,7 +68,7 @@
             </aside>
 
             <section class="detail-stack">
-                <article class="glass panel">
+                <article class="glass panel view-control">
                     <div class="section-head">
                         <div>
                             <p class="eyebrow">App Detail</p>
@@ -81,53 +81,63 @@
                     <div id="actionOutput" class="output-box empty">No action has been run yet.</div>
                 </article>
 
-                <div class="split-grid">
-                    <article class="glass panel">
-                        <div class="section-head">
-                            <div>
-                                <p class="eyebrow">Logs</p>
-                                <h2>Recent Output</h2>
-                            </div>
-                            <div class="inline-actions">
-                                <button class="soft-button" data-lines="80" type="button">80</button>
-                                <button class="soft-button" data-lines="200" type="button">200</button>
-                                <button id="refreshLogsBtn" class="soft-button" type="button">Reload</button>
-                            </div>
+                <article class="glass panel view-control">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Logs</p>
+                            <h2>Recent Output</h2>
                         </div>
-                        <div class="log-tabs">
-                            <button id="stdoutTab" class="tab-button active" type="button">stdout</button>
-                            <button id="stderrTab" class="tab-button" type="button">stderr</button>
+                        <div class="inline-actions">
+                            <button class="soft-button" data-lines="80" type="button">80</button>
+                            <button class="soft-button" data-lines="200" type="button">200</button>
+                            <button id="refreshLogsBtn" class="soft-button" type="button">Reload</button>
                         </div>
-                        <pre id="logViewer" class="code-viewer">Choose an app to load logs.</pre>
-                    </article>
+                    </div>
+                    <div class="log-tabs">
+                        <button id="stdoutTab" class="tab-button active" type="button">stdout</button>
+                        <button id="stderrTab" class="tab-button" type="button">stderr</button>
+                    </div>
+                    <pre id="logViewer" class="code-viewer">Choose an app to load logs.</pre>
+                </article>
 
-                    <article class="glass panel">
-                        <div class="section-head">
+                <article class="glass panel view-files">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">File Manager</p>
+                            <h2 id="filePathLabel">No folder loaded</h2>
+                        </div>
+                        <div class="inline-actions">
+                            <button id="fileUpBtn" class="soft-button" type="button">Up</button>
+                            <button id="refreshFilesBtn" class="soft-button" type="button">Reload</button>
+                        </div>
+                    </div>
+                    <div id="fileList" class="file-list"></div>
+                    <div class="file-preview">
+                        <div class="preview-head">
                             <div>
-                                <p class="eyebrow">File Manager</p>
-                                <h2 id="filePathLabel">No folder loaded</h2>
+                                <p class="eyebrow">Preview</p>
+                                <h3 id="previewTitle">No file selected</h3>
                             </div>
-                            <div class="inline-actions">
-                                <button id="fileUpBtn" class="soft-button" type="button">Up</button>
-                                <button id="refreshFilesBtn" class="soft-button" type="button">Reload</button>
-                            </div>
+                            <button id="downloadFileBtn" class="soft-button hidden" type="button">Download</button>
                         </div>
-                        <div id="fileList" class="file-list"></div>
-                        <div class="file-preview">
-                            <div class="preview-head">
-                                <div>
-                                    <p class="eyebrow">Preview</p>
-                                    <h3 id="previewTitle">No file selected</h3>
-                                </div>
-                                <button id="downloadFileBtn" class="soft-button hidden" type="button">Download</button>
-                            </div>
-                            <pre id="filePreview" class="code-viewer">Select a file to preview it here.</pre>
-                        </div>
-                    </article>
-                </div>
+                        <pre id="filePreview" class="code-viewer">Select a file to preview it here.</pre>
+                    </div>
+                </article>
             </section>
         </section>
     </main>
+
+    <nav class="bottom-tabs glass" aria-label="Mini App sections">
+        <button class="bottom-tab active" data-view="apps" type="button">
+            <span class="bottom-tab-label">Apps</span>
+        </button>
+        <button class="bottom-tab" data-view="control" type="button">
+            <span class="bottom-tab-label">Control</span>
+        </button>
+        <button class="bottom-tab" data-view="files" type="button">
+            <span class="bottom-tab-label">Files</span>
+        </button>
+    </nav>
 
     <div id="busyOverlay" class="busy-overlay hidden">
         <div class="glass busy-card">

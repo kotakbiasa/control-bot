@@ -11,7 +11,8 @@
         currentFileDownloadPath: null,
         logs: { stdout: "", stderr: "" },
         activeLogTab: "stdout",
-        logLines: 80
+        logLines: 80,
+        currentView: "apps"
     };
 
     const els = {};
@@ -27,10 +28,13 @@
             try {
                 tg.ready();
                 tg.expand();
-                if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#d7ecff");
-                if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#d9ecff");
+                if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#0c1321");
+                if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#0b1020");
             } catch { }
         }
+
+        setView(isCompactViewport() ? "apps" : "control", false);
+        window.addEventListener("resize", handleViewportResize);
 
         if (!state.initData) {
             els.authNotice.classList.remove("hidden");
@@ -74,6 +78,7 @@
         els.busyOverlay = document.getElementById("busyOverlay");
         els.busyText = document.getElementById("busyText");
         els.toast = document.getElementById("toast");
+        els.bottomTabs = [...document.querySelectorAll(".bottom-tab")];
     }
 
     function bindEvents() {
@@ -84,6 +89,9 @@
         els.stdoutTab.addEventListener("click", () => switchLogTab("stdout"));
         els.stderrTab.addEventListener("click", () => switchLogTab("stderr"));
         els.downloadFileBtn.addEventListener("click", () => downloadCurrentFile());
+        els.bottomTabs.forEach((button) => {
+            button.addEventListener("click", () => setView(button.dataset.view));
+        });
 
         document.querySelectorAll("[data-lines]").forEach((button) => {
             button.addEventListener("click", () => {
@@ -98,9 +106,7 @@
         const root = document.documentElement;
         const theme = tg.themeParams;
         if (theme.button_color) root.style.setProperty("--accent", theme.button_color);
-        if (theme.text_color) root.style.setProperty("--text", theme.text_color);
-        if (theme.hint_color) root.style.setProperty("--muted", theme.hint_color);
-        if (theme.secondary_bg_color) root.style.setProperty("--surface-soft", hexToRgba(theme.secondary_bg_color, 0.36));
+        if (theme.secondary_bg_color) root.style.setProperty("--surface-soft", hexToRgba(theme.secondary_bg_color, 0.12));
     }
 
     async function refreshAll() {
@@ -186,6 +192,9 @@
             state.appDetail = payload.app;
             renderAppDetail();
             await Promise.all([refreshLogs(), refreshFiles()]);
+            if (isCompactViewport()) {
+                setView("control");
+            }
         } catch (err) {
             showToast(extractError(err));
         } finally {
@@ -284,6 +293,9 @@
         state.appMap = new Map(state.apps.map((item) => [item.name, item]));
         renderSummary(payload);
         renderApps();
+        if (!state.selectedApp && isCompactViewport()) {
+            setView("apps", false);
+        }
     }
 
     async function refreshLogs() {
@@ -369,6 +381,9 @@
         els.previewTitle.textContent = "No file selected";
         els.filePreview.textContent = "Select a file to preview it here.";
         els.downloadFileBtn.classList.add("hidden");
+        if (isCompactViewport()) {
+            setView("files", false);
+        }
         await refreshFiles();
     }
 
@@ -384,6 +399,9 @@
         if (!state.selectedApp) return;
         try {
             setBusy("Opening file...");
+            if (isCompactViewport()) {
+                setView("files", false);
+            }
             const payload = await api(`/api/miniapp/apps/${encodeURIComponent(state.selectedApp)}/file?path=${encodeURIComponent(filePath)}`);
             state.currentFilePath = payload.path;
             state.currentFileDownloadPath = `/api/miniapp/apps/${encodeURIComponent(state.selectedApp)}/file?path=${encodeURIComponent(filePath)}&download=1`;
@@ -466,6 +484,30 @@
 
     function clearBusy() {
         els.busyOverlay.classList.add("hidden");
+    }
+
+    function setView(view, shouldScroll = true) {
+        const allowed = new Set(["apps", "control", "files"]);
+        state.currentView = allowed.has(view) ? view : "apps";
+        document.body.dataset.view = state.currentView;
+        els.bottomTabs.forEach((button) => {
+            button.classList.toggle("active", button.dataset.view === state.currentView);
+        });
+        if (shouldScroll && isCompactViewport()) {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+    }
+
+    function handleViewportResize() {
+        if (isCompactViewport()) {
+            if (!state.currentView) setView("apps", false);
+        } else {
+            document.body.dataset.view = state.currentView;
+        }
+    }
+
+    function isCompactViewport() {
+        return window.matchMedia("(max-width: 1120px)").matches;
     }
 
     let toastTimer = null;
