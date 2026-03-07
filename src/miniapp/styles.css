@@ -1145,6 +1145,184 @@ button {
         bottom: calc(82px + env(safe-area-inset-bottom));
     }
 
+    body[data-view="overview"] .system-strip {
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    body[data-view="overview"] .metric-card {
+        min-height: 92px;
+        padding: 14px;
+    }
+
+    body[data-view="overview"] .metric-card strong {
+        font-size: 1.32rem;
+    }
+
+    body[data-view="overview"] .metric-card small {
+        margin-top: 6px;
+        font-size: 0.82rem;
+    }
+
+    body[data-view="overview"] .detail-shell {
+        gap: 8px;
+    }
+
+    body[data-view="overview"] .selected-card {
+        padding: 14px 15px;
+        border-radius: 18px;
+    }
+
+    body[data-view="overview"] .selected-head {
+        gap: 10px;
+    }
+
+    body[data-view="overview"] .selected-identity .eyebrow {
+        margin-bottom: 4px;
+        font-size: 0.68rem;
+    }
+
+    body[data-view="overview"] .selected-identity .app-subtitle {
+        margin-top: 6px;
+        font-size: 0.9rem;
+        line-height: 1.35;
+        max-height: 2.7em;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    body[data-view="overview"] .selected-actions {
+        gap: 8px;
+    }
+
+    body[data-view="overview"] .selected-actions .ghost-btn {
+        min-height: 38px;
+        padding: 0 12px;
+    }
+
+    body[data-view="overview"] .summary-chips {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    body[data-view="overview"] .summary-card {
+        min-height: 64px;
+        padding: 10px 12px;
+        border-radius: 14px;
+        gap: 4px;
+    }
+
+    body[data-view="overview"] .summary-card.wide {
+        grid-column: 1 / -1;
+    }
+
+    body[data-view="overview"] .summary-card-label {
+        font-size: 0.68rem;
+        letter-spacing: 0.07em;
+    }
+
+    body[data-view="overview"] .summary-card-value {
+        font-size: 0.92rem;
+        line-height: 1.25;
+    }
+
+    body[data-view="overview"] #overviewPanel {
+        gap: 10px;
+        padding: 14px;
+    }
+
+    body[data-view="overview"] #overviewPanel .panel-head {
+        gap: 8px;
+    }
+
+    body[data-view="overview"] #overviewPanel .panel-head .eyebrow {
+        margin-bottom: 4px;
+        font-size: 0.68rem;
+    }
+
+    body[data-view="overview"] .info-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    body[data-view="overview"] .info-card {
+        padding: 10px 12px;
+        border-radius: 12px;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+            rgba(255, 255, 255, 0.015);
+        box-shadow: none;
+    }
+
+    body[data-view="overview"] .info-card-label {
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    body[data-view="overview"] .info-card-value {
+        margin-top: 4px;
+        font-size: 0.86rem;
+        line-height: 1.38;
+    }
+
+    body[data-view="overview"] .action-stack {
+        gap: 8px;
+    }
+
+    body[data-view="overview"] .action-card {
+        padding: 10px 12px;
+        border-radius: 14px;
+    }
+
+    body[data-view="overview"] .group-head {
+        gap: 6px;
+    }
+
+    body[data-view="overview"] .group-kicker {
+        margin-bottom: 4px;
+        font-size: 0.68rem;
+    }
+
+    body[data-view="overview"] .action-grid {
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    body[data-view="overview"] #runtimeActions {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    body[data-view="overview"] #deployActions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body[data-view="overview"] #dangerActions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body[data-view="overview"] .action-btn {
+        min-height: 40px;
+        padding: 0 10px;
+        border-radius: 14px;
+        font-size: 0.86rem;
+    }
+
+    body[data-view="overview"] #actionOutput.empty {
+        display: none;
+    }
+
+    body[data-view="overview"] #actionOutput:not(.empty) {
+        min-height: auto;
+        padding: 12px 14px;
+        border-radius: 14px;
+        font-size: 0.82rem;
+        line-height: 1.42;
+    }
+
     body[data-view="logs"] .system-strip,
     body[data-view="files"] .system-strip {
         display: none;
@@ -1238,6 +1416,46 @@ button {
 
     .system-strip {
         grid-template-columns: 1fr 1fr;
+    }
+
+    body[data-view="overview"] .summary-chips {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    body[data-view="overview"] .summary-card {
+        min-height: 56px;
+        padding: 9px 10px;
+        border-radius: 12px;
+    }
+
+    body[data-view="overview"] .summary-card.wide {
+        grid-column: 1 / -1;
+    }
+
+    body[data-view="overview"] .selected-card,
+    body[data-view="overview"] #overviewPanel {
+        padding: 14px;
+    }
+
+    body[data-view="overview"] .selected-head {
+        gap: 8px;
+    }
+
+    body[data-view="overview"] .selected-actions {
+        gap: 8px;
+    }
+
+    body[data-view="overview"] #runtimeActions {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    body[data-view="overview"] #deployActions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body[data-view="overview"] #dangerActions {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     body[data-view="logs"] .selected-head,

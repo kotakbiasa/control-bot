@@ -346,16 +346,16 @@
             },
             { label: "Branch", value: app.branch || "-" },
             { label: "PID", value: runtime.pid || "-" },
-            { label: "Deploy", value: app.lastDeployAt || "-" },
             { label: "CPU", value: usage.cpu ? `${usage.cpu}%` : "-" },
-            app.pinned ? { label: "Mode", value: "Pinned", tone: "warm" } : null
+            { label: "Deploy", value: app.lastDeployAt || "-", layout: "wide" },
+            app.pinned ? { label: "Mode", value: "Pinned", tone: "warm", layout: "wide" } : null
         ].filter(Boolean);
 
         els.appTitle.textContent = app.name || "Unnamed app";
         els.appSubtitle.textContent = app.repo || app.directory || "No repository configured.";
         els.appStatusBadge.textContent = runtime.status || "stopped";
         els.appStatusBadge.className = `status-badge ${runtime.status === "running" ? "running" : "stopped"}`;
-        els.summaryChips.innerHTML = summaryItems.map((item) => summaryCard(item.label, item.value, item.tone)).join("");
+        els.summaryChips.innerHTML = summaryItems.map((item) => summaryCard(item.label, item.value, item.tone, item.layout)).join("");
 
         els.appMeta.innerHTML = [
             infoCard("Repository", app.repo || "-"),
@@ -845,9 +845,10 @@
         `;
     }
 
-    function summaryCard(label, value, tone) {
+    function summaryCard(label, value, tone, layout) {
+        const classes = [tone, layout].filter(Boolean).map((item) => ` ${escapeAttr(item)}`).join("");
         return `
-            <div class="summary-card${tone ? ` ${escapeAttr(tone)}` : ""}">
+            <div class="summary-card${classes}">
                 <span class="summary-card-label">${escapeHtml(label)}</span>
                 <strong class="summary-card-value">${escapeHtml(value || "-")}</strong>
             </div>
