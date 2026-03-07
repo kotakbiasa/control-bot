@@ -1,11 +1,14 @@
 (function () {
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    const MOBILE_MEDIA = "(max-width: 980px)";
+    const VIEWS = new Set(["apps", "overview", "logs", "files"]);
+
     const state = {
         initData: tg && tg.initData ? tg.initData : "",
         apps: [],
         selectedApp: null,
         appDetail: null,
-        currentView: "overview",
+        currentView: "apps",
         appFilter: "all",
         appQuery: "",
         filePath: ".",
@@ -24,12 +27,17 @@
         bindElements();
         bindEvents();
         initTelegramUi();
-        setView(isCompactViewport() ? "apps" : "overview", { scroll: false });
+        applyTelegramColors();
+        updateFilterButtons();
+        updateLogLineButtons();
+        renderSummary({ summary: {}, vps: {}, apps: [] });
+        renderEmptyState();
+        state.currentView = isMobileView() ? "apps" : "overview";
+        renderNavigationState();
 
         if (!state.initData) {
             els.authNotice.classList.remove("hidden");
             els.userBadge.textContent = "Telegram auth required";
-            renderEmptyState();
             return;
         }
 
@@ -50,6 +58,9 @@
         els.diskStat = document.getElementById("diskStat");
         els.hostStat = document.getElementById("hostStat");
         els.appCountPill = document.getElementById("appCountPill");
+        els.appsPanel = document.getElementById("appsPanel");
+        els.detailShell = document.getElementById("detailShell");
+        els.emptySelectionNotice = document.getElementById("emptySelectionNotice");
         els.appSearchInput = document.getElementById("appSearchInput");
         els.filterChips = Array.from(document.querySelectorAll(".filter-chip"));
         els.appList = document.getElementById("appList");
@@ -88,6 +99,7 @@
     function bindEvents() {
         els.refreshAllBtn.addEventListener("click", () => refreshAll());
         els.refreshSelectedBtn.addEventListener("click", () => refreshSelectedApp());
+
         els.appSearchInput.addEventListener("input", (event) => {
             state.appQuery = String(event.target.value || "").trim().toLowerCase();
             renderApps();
@@ -96,15 +108,20 @@
         els.filterChips.forEach((button) => {
             button.addEventListener("click", () => {
                 state.appFilter = button.dataset.filter || "all";
-                renderApps();
                 updateFilterButtons();
+                renderApps();
             });
         });
 
-        [...els.contentTabs, ...els.bottomTabs].forEach((button) => {
+        els.contentTabs.forEach((button) => {
             button.addEventListener("click", () => {
-                const nextView = button.dataset.viewTarget || "overview";
-                setView(nextView);
+                handleDesktopTabPress(button.dataset.viewTarget || "overview");
+            });
+        });
+
+        els.bottomTabs.forEach((button) => {
+            button.addEventListener("click", () => {
+                handleBottomTabPress(button.dataset.viewTarget || "apps");
             });
         });
 
@@ -122,7 +139,6 @@
         els.fileUpBtn.addEventListener("click", () => goUp());
         els.refreshFilesBtn.addEventListener("click", () => refreshFiles());
         els.downloadFileBtn.addEventListener("click", () => downloadCurrentFile());
-
         window.addEventListener("resize", handleViewportChange);
     }
 
@@ -132,28 +148,28 @@
         try {
             tg.ready();
             tg.expand();
-            if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#10141f");
-            if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#10141f");
             if (typeof tg.onEvent === "function") {
                 tg.onEvent("themeChanged", applyTelegramColors);
                 tg.onEvent("viewportChanged", handleViewportChange);
             }
             if (tg.BackButton && typeof tg.BackButton.onClick === "function") {
                 tg.BackButton.onClick(() => {
-                    if (!isCompactViewport()) return;
+                    if (!isMobileView()) return;
                     if (state.currentView === "apps") return;
-                    setView("apps");
+                    setCurrentView("apps", { scroll: false, silent: true });
                 });
             }
-        } catch { }
-
-        applyTelegramColors();
+        } catch {
+            return;
+        }
     }
 
     function applyTelegramColors() {
         if (!tg || !tg.themeParams) return;
+
         const root = document.documentElement;
         const theme = tg.themeParams;
+        const themeColor = document.querySelector('meta[name="theme-color"]');
 
         if (theme.button_color) root.style.setProperty("--tg-button", theme.button_color);
         if (theme.button_text_color) root.style.setProperty("--tg-button-text", theme.button_text_color);
@@ -161,18 +177,31 @@
         if (theme.hint_color) root.style.setProperty("--tg-hint", theme.hint_color);
         if (theme.bg_color) root.style.setProperty("--tg-bg", theme.bg_color);
         if (theme.secondary_bg_color) root.style.setProperty("--tg-secondary-bg", theme.secondary_bg_color);
+
+        try {
+            if (typeof tg.setHeaderColor === "function") tg.setHeaderColor(theme.bg_color || "#10131a");
+            if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor(theme.bg_color || "#10131a");
+        } catch {
+            // ignore theme bridge errors
+        }
+
+        if (themeColor) {
+            themeColor.setAttribute("content", theme.bg_color || "#10131a");
+        }
     }
 
     function handleViewportChange() {
-        if (isCompactViewport()) {
-            if (!state.selectedApp && state.currentView !== "apps") {
-                setView("apps", { scroll: false });
+        if (isMobileView()) {
+            if (!state.selectedApp) {
+                state.currentView = "apps";
+            } else if (!VIEWS.has(state.currentView)) {
+                state.currentView = "overview";
             }
         } else if (state.currentView === "apps") {
-            setView("overview", { scroll: false });
-        } else {
-            syncViewState();
+            state.currentView = "overview";
         }
+
+        renderNavigationState();
     }
 
     async function refreshAll() {
@@ -188,19 +217,22 @@
                 els.userBadge.textContent = fullName || (payload.user.username ? `@${payload.user.username}` : String(payload.user.id));
             }
 
-            const targetApp = state.selectedApp && state.apps.some((item) => item.name === state.selectedApp)
-                ? state.selectedApp
-                : state.apps[0] && state.apps[0].name;
-
-            if (targetApp) {
-                await selectApp(targetApp, { focus: false });
-            } else {
-                state.selectedApp = null;
-                state.appDetail = null;
-                renderEmptyState();
+            const selectedStillExists = state.selectedApp && state.apps.some((app) => app.name === state.selectedApp);
+            if (selectedStillExists) {
+                await selectApp(state.selectedApp, { focus: false });
+                return;
             }
+
+            if (!isMobileView() && state.apps[0]) {
+                await selectApp(state.apps[0].name, { focus: false });
+                return;
+            }
+
+            clearSelectedState();
+            renderEmptyState();
+            setCurrentView(isMobileView() ? "apps" : "overview", { scroll: false, silent: true });
         } catch (err) {
-            showToast(extractError(err));
+            showToast(extractError(err), "error");
         } finally {
             clearBusy();
         }
@@ -220,7 +252,7 @@
         els.cpuStat.textContent = `${vps.cpuCount || 0} cores`;
         els.diskStat.textContent = `${disk.used || "-"} / ${disk.total || "-"}`;
         els.hostStat.textContent = `${vps.host || "-"} | ${vps.os || "-"}`;
-        els.appCountPill.textContent = String((payload.apps || []).length);
+        els.appCountPill.textContent = String(state.apps.length);
     }
 
     function renderApps() {
@@ -237,23 +269,28 @@
         }
 
         els.appList.innerHTML = filteredApps.map((app) => {
-            const statusClass = app.status === "running" ? "running" : "stopped";
             const activeClass = state.selectedApp === app.name ? "active" : "";
-            const pin = app.pinned ? "Pinned" : "Normal";
+            const statusClass = app.status === "running" ? "running" : "stopped";
             const branch = app.branch || "main";
+            const pinnedTag = app.pinned ? '<span class="app-tag pinned">Pinned</span>' : "";
             return `
                 <button class="app-card ${activeClass}" data-app-name="${escapeAttr(app.name)}" type="button">
                     <div class="app-card-head">
-                        <span class="app-name"><span class="status-dot ${statusClass}"></span>${escapeHtml(app.name)}</span>
-                        <span class="chip">${escapeHtml(branch)}</span>
+                        <span class="status-inline"><span class="status-dot ${statusClass}"></span><span class="app-card-name">${escapeHtml(app.name)}</span></span>
+                        <span class="app-tag">${escapeHtml(branch)}</span>
                     </div>
-                    <div class="app-card-meta">${escapeHtml(app.status || "stopped")} | ${escapeHtml(pin)}</div>
+                    <div class="app-card-meta">
+                        <span>${escapeHtml(app.status || "stopped")}</span>
+                        ${pinnedTag}
+                    </div>
                 </button>
             `;
         }).join("");
 
         els.appList.querySelectorAll("[data-app-name]").forEach((button) => {
-            button.addEventListener("click", () => selectApp(button.dataset.appName, { focus: true }));
+            button.addEventListener("click", () => {
+                selectApp(button.dataset.appName, { focus: true });
+            });
         });
     }
 
@@ -262,9 +299,7 @@
         if (!appName) return;
 
         state.selectedApp = appName;
-        state.filePath = ".";
-        state.currentFilePath = null;
-        state.currentFileDownloadPath = null;
+        resetFileState();
         renderApps();
 
         try {
@@ -273,18 +308,24 @@
             state.appDetail = payload.app || null;
             renderSelectedApp();
             await Promise.all([refreshLogs(), refreshFiles()]);
-            if (focus) {
-                setView("overview");
+            if (focus && isMobileView()) {
+                setCurrentView("overview", { scroll: true, silent: true });
+            } else {
+                renderNavigationState();
             }
         } catch (err) {
-            showToast(extractError(err));
+            showToast(extractError(err), "error");
         } finally {
             clearBusy();
         }
     }
 
     async function refreshSelectedApp() {
-        if (!state.selectedApp) return;
+        if (!state.selectedApp) {
+            showToast("Select an app first.", "error");
+            return;
+        }
+
         await selectApp(state.selectedApp, { focus: false });
     }
 
@@ -295,28 +336,29 @@
             return;
         }
 
-        const usage = app.runtime && app.runtime.usage ? app.runtime.usage : null;
+        const runtime = app.runtime || {};
+        const usage = runtime.usage || {};
         const chips = [
-            `Status: ${app.runtime.status || "stopped"}`,
+            `Status: ${runtime.status || "stopped"}`,
             app.branch ? `Branch: ${app.branch}` : null,
-            app.runtime.pid ? `PID: ${app.runtime.pid}` : "PID: -",
+            runtime.pid ? `PID: ${runtime.pid}` : "PID: -",
             app.pinned ? "Pinned" : null,
             app.lastDeployAt ? `Deploy: ${app.lastDeployAt}` : null,
-            usage && usage.cpu ? `CPU: ${usage.cpu}%` : null
+            usage.cpu ? `CPU: ${usage.cpu}%` : null
         ].filter(Boolean);
 
-        els.appTitle.textContent = app.name;
+        els.appTitle.textContent = app.name || "Unnamed app";
         els.appSubtitle.textContent = app.repo || app.directory || "No repository configured.";
-        els.appStatusBadge.textContent = app.runtime.status || "stopped";
-        els.appStatusBadge.className = `status-badge ${app.runtime.status === "running" ? "running" : "stopped"}`;
-        els.summaryChips.innerHTML = chips.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("");
+        els.appStatusBadge.textContent = runtime.status || "stopped";
+        els.appStatusBadge.className = `status-badge ${runtime.status === "running" ? "running" : "stopped"}`;
+        els.summaryChips.innerHTML = chips.map((chip) => `<span class="info-chip">${escapeHtml(chip)}</span>`).join("");
 
         els.appMeta.innerHTML = [
             infoCard("Repository", app.repo || "-"),
             infoCard("Directory", app.directory || "-"),
             infoCard("Branch", app.branch || "-"),
-            infoCard("PID", app.runtime.pid || "-"),
-            infoCard("Last Start", app.runtime.lastStartAt || "-"),
+            infoCard("PID", runtime.pid || "-"),
+            infoCard("Last Start", runtime.lastStartAt || "-"),
             infoCard("Last Deploy", app.lastDeployAt || "-"),
             infoCard("Install Command", app.installCommand || "-"),
             infoCard("Build Command", app.buildCommand || "-"),
@@ -328,12 +370,10 @@
             actionButton("Stop", "stop", "danger"),
             actionButton("Restart", "restart", "primary")
         ].join("");
-
         els.deployActions.innerHTML = [
             actionButton("Deploy", "deploy", "primary"),
             actionButton("Update", "update", "primary")
         ].join("");
-
         els.dangerActions.innerHTML = actionButton("Remove App", "remove", "danger");
 
         [
@@ -343,6 +383,8 @@
         ].forEach((button) => {
             button.addEventListener("click", () => runAction(button.dataset.action));
         });
+
+        renderNavigationState();
     }
 
     function renderEmptyState() {
@@ -357,17 +399,24 @@
         els.dangerActions.innerHTML = "";
         els.actionOutput.textContent = "No action has been run yet.";
         els.actionOutput.classList.add("empty");
-        els.logViewer.textContent = "Choose an app to load logs.";
+        state.logs.stdout = "";
+        state.logs.stderr = "";
+        paintLogViewer();
         els.filePathLabel.textContent = "No folder loaded";
         els.fileBreadcrumbs.innerHTML = "";
         els.fileList.innerHTML = '<div class="empty-note">Choose an app to open the file manager.</div>';
         els.previewTitle.textContent = "No file selected";
         els.filePreview.textContent = "Select a file to preview it here.";
         els.downloadFileBtn.classList.add("hidden");
+        renderNavigationState();
     }
 
     async function runAction(action) {
-        if (!state.selectedApp) return;
+        if (!state.selectedApp) {
+            showToast("Select an app first.", "error");
+            setCurrentView("apps", { scroll: true, silent: true });
+            return;
+        }
 
         let body = {};
         if (action === "remove") {
@@ -381,15 +430,16 @@
                 method: "POST",
                 body: JSON.stringify(body)
             });
-            els.actionOutput.textContent = [payload.message, payload.detail].filter(Boolean).join("\n\n");
+
+            els.actionOutput.textContent = [payload.message, payload.detail].filter(Boolean).join("\n\n") || "Action completed.";
             els.actionOutput.classList.remove("empty");
-            showToast(payload.message || "Action completed.");
+            showToast(payload.message || "Action completed.", "success");
 
             if (action === "remove") {
-                state.selectedApp = null;
-                state.appDetail = null;
-                await refreshAll();
-                if (isCompactViewport()) setView("apps", { scroll: false });
+                clearSelectedState();
+                renderEmptyState();
+                await refreshAllSilently();
+                setCurrentView(isMobileView() ? "apps" : "overview", { scroll: false, silent: true });
                 return;
             }
 
@@ -400,7 +450,7 @@
 
             await Promise.all([refreshAllSilently(), refreshLogs(), refreshFiles()]);
         } catch (err) {
-            showToast(extractError(err));
+            showToast(extractError(err), "error");
         } finally {
             clearBusy();
         }
@@ -411,10 +461,19 @@
         state.apps = Array.isArray(payload.apps) ? payload.apps : [];
         renderSummary(payload);
         renderApps();
+
+        if (state.selectedApp && !state.apps.some((app) => app.name === state.selectedApp)) {
+            clearSelectedState();
+            renderEmptyState();
+            setCurrentView(isMobileView() ? "apps" : "overview", { scroll: false, silent: true });
+        }
     }
 
     async function refreshLogs() {
-        if (!state.selectedApp) return;
+        if (!state.selectedApp) {
+            paintLogViewer();
+            return;
+        }
 
         try {
             const payload = await api(`/api/miniapp/apps/${encodeURIComponent(state.selectedApp)}/logs?lines=${state.logLines}`);
@@ -422,7 +481,7 @@
             state.logs.stderr = payload.stderr || "";
             paintLogViewer();
         } catch (err) {
-            showToast(extractError(err));
+            showToast(extractError(err), "error");
         }
     }
 
@@ -446,7 +505,10 @@
     }
 
     async function refreshFiles() {
-        if (!state.selectedApp) return;
+        if (!state.selectedApp) {
+            els.fileList.innerHTML = '<div class="empty-note">Choose an app to open the file manager.</div>';
+            return;
+        }
 
         try {
             const payload = await api(`/api/miniapp/apps/${encodeURIComponent(state.selectedApp)}/files?path=${encodeURIComponent(state.filePath)}`);
@@ -454,7 +516,7 @@
             renderBreadcrumbs(state.filePath);
             renderFileList(payload);
         } catch (err) {
-            showToast(extractError(err));
+            showToast(extractError(err), "error");
         }
     }
 
@@ -462,6 +524,7 @@
         const parts = currentPath === "." ? [] : currentPath.split("/").filter(Boolean);
         const crumbs = [{ label: state.selectedApp || "Root", path: "." }];
         let acc = "";
+
         for (const part of parts) {
             acc = acc ? `${acc}/${part}` : part;
             crumbs.push({ label: part, path: acc });
@@ -490,7 +553,7 @@
             <button class="file-row" data-path="${escapeAttr(item.path)}" data-type="${escapeAttr(item.type)}" type="button">
                 <div class="file-row-head">
                     <span class="file-name">${escapeHtml(item.name)}${item.type === "dir" ? "/" : ""}</span>
-                    <span class="chip">${escapeHtml(item.type)}</span>
+                    <span class="app-tag">${escapeHtml(item.type)}</span>
                 </div>
                 <div class="file-meta">${escapeHtml(item.sizeLabel || "-")} | ${escapeHtml(item.modifiedAt || "-")}</div>
             </button>
@@ -500,9 +563,9 @@
             button.addEventListener("click", () => {
                 if (button.dataset.type === "dir") {
                     openDir(button.dataset.path);
-                } else {
-                    openFile(button.dataset.path);
+                    return;
                 }
+                openFile(button.dataset.path);
             });
         });
     }
@@ -517,11 +580,10 @@
         els.filePreview.textContent = "Select a file to preview it here.";
         els.downloadFileBtn.classList.add("hidden");
 
-        if (isCompactViewport()) {
-            setView("files", { scroll: false });
-        }
-
         await refreshFiles();
+        if (isMobileView()) {
+            setCurrentView("files", { scroll: false, silent: true });
+        }
     }
 
     async function goUp() {
@@ -541,6 +603,7 @@
             state.currentFileDownloadPath = `/api/miniapp/apps/${encodeURIComponent(state.selectedApp)}/file?path=${encodeURIComponent(filePath)}&download=1`;
             els.previewTitle.textContent = payload.path;
             els.downloadFileBtn.classList.remove("hidden");
+
             if (payload.isBinary) {
                 els.filePreview.textContent = `Binary file. Size ${payload.sizeLabel}. Download it instead of previewing.`;
             } else {
@@ -548,11 +611,11 @@
                 els.filePreview.textContent = `${payload.content || ""}${suffix}`;
             }
 
-            if (isCompactViewport()) {
-                setView("files", { scroll: false });
+            if (isMobileView()) {
+                setCurrentView("files", { scroll: false, silent: true });
             }
         } catch (err) {
-            showToast(extractError(err));
+            showToast(extractError(err), "error");
         } finally {
             clearBusy();
         }
@@ -580,56 +643,98 @@
             anchor.click();
             URL.revokeObjectURL(href);
         } catch (err) {
-            showToast(extractError(err));
+            showToast(extractError(err), "error");
         } finally {
             clearBusy();
         }
     }
 
-    function setView(view, options) {
-        const { scroll = true } = options || {};
-        const allowed = new Set(["apps", "overview", "logs", "files"]);
-        let nextView = allowed.has(view) ? view : "overview";
+    function handleBottomTabPress(view) {
+        setCurrentView(view, { scroll: true });
+    }
 
-        if (!state.selectedApp && nextView !== "apps" && isCompactViewport()) {
-            nextView = "apps";
+    function handleDesktopTabPress(view) {
+        if (!state.selectedApp) {
+            showToast("Select an app first.", "error");
+            return;
         }
-        if (!isCompactViewport() && nextView === "apps") {
+        setCurrentView(view, { scroll: false, silent: true });
+    }
+
+    function setCurrentView(view, options) {
+        const { scroll = true, silent = false } = options || {};
+        let nextView = VIEWS.has(view) ? view : (isMobileView() ? "apps" : "overview");
+
+        if (!isMobileView() && nextView === "apps") {
             nextView = "overview";
         }
 
-        state.currentView = nextView;
-        syncViewState();
+        if (isMobileView() && nextView !== "apps" && !state.selectedApp) {
+            if (!silent) showToast("Select an app first.", "error");
+            nextView = "apps";
+        }
 
-        if (scroll && isCompactViewport()) {
+        state.currentView = nextView;
+        renderNavigationState();
+
+        if (scroll && isMobileView()) {
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
     }
 
-    function syncViewState() {
+    function renderNavigationState() {
+        const mobile = isMobileView();
+        const desktopView = state.currentView === "apps" ? "overview" : state.currentView;
+        const activeDetailView = mobile ? (state.currentView === "apps" ? "overview" : state.currentView) : desktopView;
+
         document.body.dataset.view = state.currentView;
 
+        els.appsPanel.classList.toggle("is-active", mobile ? state.currentView === "apps" : true);
+        els.detailShell.classList.toggle("is-active", mobile ? state.currentView !== "apps" : true);
+
         els.contentTabs.forEach((button) => {
-            button.classList.toggle("active", button.dataset.viewTarget === state.currentView);
+            button.classList.toggle("active", button.dataset.viewTarget === desktopView);
         });
         els.bottomTabs.forEach((button) => {
             button.classList.toggle("active", button.dataset.viewTarget === state.currentView);
         });
 
-        els.overviewPanel.classList.toggle("is-active", state.currentView === "overview");
-        els.logsPanel.classList.toggle("is-active", state.currentView === "logs");
-        els.filesPanel.classList.toggle("is-active", state.currentView === "files");
+        els.overviewPanel.classList.toggle("is-active", activeDetailView === "overview");
+        els.logsPanel.classList.toggle("is-active", activeDetailView === "logs");
+        els.filesPanel.classList.toggle("is-active", activeDetailView === "files");
 
-        if (tg && tg.BackButton) {
-            try {
-                if (isCompactViewport() && state.currentView !== "apps") tg.BackButton.show();
-                else tg.BackButton.hide();
-            } catch { }
+        els.emptySelectionNotice.classList.toggle("hidden", !(mobile && !state.selectedApp));
+        syncBackButton();
+    }
+
+    function syncBackButton() {
+        if (!tg || !tg.BackButton) return;
+
+        try {
+            if (isMobileView() && state.currentView !== "apps") tg.BackButton.show();
+            else tg.BackButton.hide();
+        } catch {
+            // ignore bridge errors
         }
     }
 
-    function isCompactViewport() {
-        return window.matchMedia("(max-width: 980px)").matches;
+    function isMobileView() {
+        return window.matchMedia(MOBILE_MEDIA).matches;
+    }
+
+    function clearSelectedState() {
+        state.selectedApp = null;
+        state.appDetail = null;
+        state.logs.stdout = "";
+        state.logs.stderr = "";
+        resetFileState();
+        renderApps();
+    }
+
+    function resetFileState() {
+        state.filePath = ".";
+        state.currentFilePath = null;
+        state.currentFileDownloadPath = null;
     }
 
     async function api(url, options) {
@@ -671,14 +776,18 @@
     }
 
     let toastTimer = null;
-    function showToast(text) {
+    function showToast(text, tone) {
         els.toast.textContent = text;
         els.toast.classList.remove("hidden");
         if (toastTimer) window.clearTimeout(toastTimer);
         toastTimer = window.setTimeout(() => els.toast.classList.add("hidden"), 2600);
 
         if (tg && tg.HapticFeedback && typeof tg.HapticFeedback.notificationOccurred === "function") {
-            try { tg.HapticFeedback.notificationOccurred("success"); } catch { }
+            try {
+                tg.HapticFeedback.notificationOccurred(tone === "error" ? "error" : "success");
+            } catch {
+                // ignore haptic errors
+            }
         }
     }
 

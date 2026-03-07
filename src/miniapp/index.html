@@ -3,22 +3,23 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#10141f">
+    <meta name="theme-color" content="#10131a">
     <title>Control Bot Mini App</title>
     <link rel="stylesheet" href="/miniapp/styles.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="/miniapp/app.js"></script>
 </head>
-<body data-view="overview">
+<body>
     <div class="ambient ambient-a"></div>
     <div class="ambient ambient-b"></div>
+    <div class="ambient ambient-c"></div>
 
     <main class="shell">
         <header class="topbar surface">
             <div class="brand-block">
-                <p class="kicker">Telegram Mini App</p>
-                <h1>Operations Console</h1>
-                <p class="subtitle">App control, logs, and file access in one place.</p>
+                <p class="eyebrow">Telegram Mini App</p>
+                <h1>Deploy Console</h1>
+                <p class="subtitle">A compact control surface for apps, logs, and files inside Telegram.</p>
             </div>
             <div class="topbar-actions">
                 <span id="userBadge" class="user-chip">Waiting for Telegram...</span>
@@ -28,26 +29,26 @@
 
         <section id="authNotice" class="notice-card surface hidden">
             <h2>Open this inside Telegram</h2>
-            <p>This Mini App needs Telegram WebApp auth data. Launch it from the bot button or the bot menu button.</p>
+            <p>This Mini App requires Telegram WebApp auth data. Launch it from the bot button or menu button inside Telegram.</p>
         </section>
 
-        <section class="summary-strip">
-            <article class="metric-card surface">
+        <section class="system-strip" aria-label="System summary">
+            <article class="metric-card metric-card-apps surface">
                 <span class="metric-label">Apps</span>
                 <strong id="totalApps">0</strong>
                 <small id="pinnedApps">0 pinned</small>
             </article>
-            <article class="metric-card surface">
+            <article class="metric-card metric-card-running surface">
                 <span class="metric-label">Running</span>
                 <strong id="runningApps">0</strong>
                 <small id="botUptime">Bot uptime -</small>
             </article>
-            <article class="metric-card surface">
+            <article class="metric-card metric-card-memory surface">
                 <span class="metric-label">Memory</span>
                 <strong id="memoryStat">-</strong>
                 <small id="cpuStat">CPU -</small>
             </article>
-            <article class="metric-card surface">
+            <article class="metric-card metric-card-disk surface">
                 <span class="metric-label">Disk</span>
                 <strong id="diskStat">-</strong>
                 <small id="hostStat">Host -</small>
@@ -55,13 +56,13 @@
         </section>
 
         <section class="workspace">
-            <aside class="sidebar surface">
-                <div class="sidebar-head">
+            <section id="appsPanel" class="apps-panel panel-screen surface">
+                <div class="panel-head">
                     <div>
-                        <p class="kicker">Navigator</p>
+                        <p class="eyebrow">Navigator</p>
                         <h2>Apps</h2>
                     </div>
-                    <span id="appCountPill" class="count-pill">0</span>
+                    <span id="appCountPill" class="count-badge">0</span>
                 </div>
 
                 <label class="search-shell" for="appSearchInput">
@@ -75,24 +76,20 @@
                     <button class="filter-chip" data-filter="pinned" type="button">Pinned</button>
                 </div>
 
+                <p id="emptySelectionNotice" class="helper-note mobile-only hidden">Select an app first to open Overview, Logs, or Files.</p>
+
                 <div id="appList" class="app-list"></div>
-            </aside>
+            </section>
 
-            <section class="content">
-                <nav class="content-tabs surface" aria-label="Content tabs">
-                    <button class="content-tab active" data-view-target="overview" type="button">Overview</button>
-                    <button class="content-tab" data-view-target="logs" type="button">Logs</button>
-                    <button class="content-tab" data-view-target="files" type="button">Files</button>
-                </nav>
-
-                <article class="app-shell surface">
-                    <div class="app-shell-head">
+            <section id="detailShell" class="detail-shell">
+                <article class="selected-card surface">
+                    <div class="selected-head">
                         <div>
-                            <p class="kicker">Selected App</p>
+                            <p class="eyebrow">Selected App</p>
                             <h2 id="appTitle">Select an app</h2>
                             <p id="appSubtitle" class="app-subtitle">Choose an app from the list to inspect its state.</p>
                         </div>
-                        <div class="app-shell-actions">
+                        <div class="selected-actions">
                             <span id="appStatusBadge" class="status-badge idle">Idle</span>
                             <button id="refreshSelectedBtn" class="ghost-btn" type="button">Reload App</button>
                         </div>
@@ -100,18 +97,24 @@
                     <div id="summaryChips" class="summary-chips"></div>
                 </article>
 
-                <section id="overviewPanel" class="content-panel surface is-active">
+                <nav class="detail-tabs surface desktop-only" aria-label="Detail tabs">
+                    <button class="content-tab active" data-view-target="overview" type="button">Overview</button>
+                    <button class="content-tab" data-view-target="logs" type="button">Logs</button>
+                    <button class="content-tab" data-view-target="files" type="button">Files</button>
+                </nav>
+
+                <section id="overviewPanel" class="detail-panel panel-screen surface is-active">
                     <div class="panel-head">
                         <div>
-                            <p class="kicker">Overview</p>
+                            <p class="eyebrow">Overview</p>
                             <h3>Runtime and deployment details</h3>
                         </div>
                     </div>
 
                     <div id="appMeta" class="info-grid"></div>
 
-                    <div class="action-layout">
-                        <section class="action-group">
+                    <div class="action-stack">
+                        <section class="action-card">
                             <div class="group-head">
                                 <span class="group-kicker">Runtime</span>
                                 <h4>Lifecycle</h4>
@@ -119,7 +122,7 @@
                             <div id="runtimeActions" class="action-grid"></div>
                         </section>
 
-                        <section class="action-group">
+                        <section class="action-card">
                             <div class="group-head">
                                 <span class="group-kicker">Delivery</span>
                                 <h4>Deployments</h4>
@@ -127,7 +130,7 @@
                             <div id="deployActions" class="action-grid"></div>
                         </section>
 
-                        <section class="action-group danger-group">
+                        <section class="action-card danger-card">
                             <div class="group-head">
                                 <span class="group-kicker">Danger Zone</span>
                                 <h4>Destructive action</h4>
@@ -136,13 +139,13 @@
                         </section>
                     </div>
 
-                    <div id="actionOutput" class="terminal-box empty">No action has been run yet.</div>
+                    <pre id="actionOutput" class="terminal-box empty">No action has been run yet.</pre>
                 </section>
 
-                <section id="logsPanel" class="content-panel surface">
+                <section id="logsPanel" class="detail-panel panel-screen surface">
                     <div class="panel-head">
                         <div>
-                            <p class="kicker">Logs</p>
+                            <p class="eyebrow">Logs</p>
                             <h3>Recent process output</h3>
                         </div>
                         <div class="inline-actions">
@@ -160,10 +163,10 @@
                     <pre id="logViewer" class="code-box">Choose an app to load logs.</pre>
                 </section>
 
-                <section id="filesPanel" class="content-panel surface">
+                <section id="filesPanel" class="detail-panel panel-screen surface">
                     <div class="panel-head">
                         <div>
-                            <p class="kicker">Files</p>
+                            <p class="eyebrow">Files</p>
                             <h3 id="filePathLabel">No folder loaded</h3>
                         </div>
                         <div class="inline-actions">
@@ -176,31 +179,31 @@
 
                     <div class="files-layout">
                         <div id="fileList" class="file-list"></div>
-                        <div class="preview-pane">
+                        <section class="preview-card">
                             <div class="preview-head">
                                 <div>
-                                    <p class="kicker">Preview</p>
+                                    <p class="eyebrow">Preview</p>
                                     <h4 id="previewTitle">No file selected</h4>
                                 </div>
                                 <button id="downloadFileBtn" class="ghost-btn hidden" type="button">Download</button>
                             </div>
                             <pre id="filePreview" class="code-box">Select a file to preview it here.</pre>
-                        </div>
+                        </section>
                     </div>
                 </section>
             </section>
         </section>
     </main>
 
-    <nav class="bottom-tabs surface" aria-label="Bottom navigation">
-        <button class="bottom-tab" data-view-target="apps" type="button">Apps</button>
-        <button class="bottom-tab active" data-view-target="overview" type="button">Overview</button>
+    <nav id="bottomNav" class="bottom-nav surface mobile-only" aria-label="Bottom navigation">
+        <button class="bottom-tab active" data-view-target="apps" type="button">Apps</button>
+        <button class="bottom-tab" data-view-target="overview" type="button">Overview</button>
         <button class="bottom-tab" data-view-target="logs" type="button">Logs</button>
         <button class="bottom-tab" data-view-target="files" type="button">Files</button>
     </nav>
 
     <div id="busyOverlay" class="busy-overlay hidden">
-        <div class="surface busy-card">
+        <div class="busy-card surface">
             <div class="spinner"></div>
             <p id="busyText">Loading...</p>
         </div>
