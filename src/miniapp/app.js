@@ -504,8 +504,16 @@
     }
 
     function paintLogViewer() {
-        const content = state.activeLogTab === "stdout" ? state.logs.stdout : state.logs.stderr;
-        els.logViewer.textContent = content || `No ${state.activeLogTab} output yet.`;
+        const content = state.selectedApp
+            ? (state.activeLogTab === "stdout" ? state.logs.stdout : state.logs.stderr)
+            : "";
+        const isEmpty = !content;
+        const fallback = state.selectedApp
+            ? `No ${state.activeLogTab} output yet.`
+            : "Choose an app to load logs.";
+
+        els.logViewer.textContent = content || fallback;
+        els.logViewer.classList.toggle("empty", isEmpty);
     }
 
     async function refreshFiles() {

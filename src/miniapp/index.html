@@ -143,27 +143,28 @@
                 </section>
 
                 <section id="logsPanel" class="detail-panel panel-screen surface">
-                    <div class="panel-head">
-                        <div>
+                    <div class="logs-topbar">
+                        <div class="logs-title">
                             <p class="eyebrow">Logs</p>
                             <h3>Recent process output</h3>
                         </div>
-                    </div>
-
-                    <div class="logs-shell">
-                        <div class="logs-toolbar">
+                        <div class="logs-controls logs-toolbar">
                             <div class="subtabs">
                                 <button id="stdoutTab" class="subtab active" type="button">stdout</button>
                                 <button id="stderrTab" class="subtab" type="button">stderr</button>
                             </div>
                             <div class="inline-actions">
-                                <button class="ghost-btn log-line-btn active" data-lines="80" type="button">80</button>
-                                <button class="ghost-btn log-line-btn" data-lines="200" type="button">200</button>
+                                <div class="logs-presets" role="group" aria-label="Log line count">
+                                    <button class="ghost-btn log-line-btn active" data-lines="80" type="button">80</button>
+                                    <button class="ghost-btn log-line-btn" data-lines="200" type="button">200</button>
+                                </div>
                                 <button id="refreshLogsBtn" class="ghost-btn" type="button">Reload</button>
                             </div>
                         </div>
+                    </div>
 
-                        <pre id="logViewer" class="code-box log-console">Choose an app to load logs.</pre>
+                    <div class="logs-shell">
+                        <pre id="logViewer" class="code-box log-console empty">Choose an app to load logs.</pre>
                     </div>
                 </section>
 

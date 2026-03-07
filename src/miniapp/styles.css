@@ -791,18 +791,50 @@ button {
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.logs-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 12px;
+}
+
+.logs-title h3 {
+    margin: 0;
+    letter-spacing: -0.04em;
+}
+
 .logs-toolbar {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-    padding: 2px;
+    padding: 2px 0;
+}
+
+.logs-controls {
+    min-width: 0;
 }
 
 .logs-toolbar .subtabs,
-.logs-toolbar .inline-actions {
+.logs-toolbar .inline-actions,
+.logs-presets {
+    display: inline-flex;
     align-items: center;
+    gap: 8px;
+}
+
+.logs-toolbar .subtabs {
+    flex-wrap: nowrap;
+}
+
+.logs-toolbar .inline-actions {
+    flex-wrap: nowrap;
+}
+
+.logs-presets .ghost-btn {
+    min-width: 48px;
+    padding: 0 12px;
 }
 
 .log-console {
@@ -812,6 +844,14 @@ button {
         linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
         #070a10;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.log-console.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: rgba(238, 244, 255, 0.58);
 }
 
 .file-list {
@@ -1368,6 +1408,39 @@ button {
         padding: 0 12px;
     }
 
+    body[data-view="logs"] #logsPanel {
+        gap: 12px;
+    }
+
+    body[data-view="logs"] .logs-topbar {
+        gap: 10px;
+        align-items: start;
+    }
+
+    body[data-view="logs"] .logs-title .eyebrow {
+        margin-bottom: 4px;
+    }
+
+    body[data-view="logs"] .logs-title h3 {
+        font-size: 1.18rem;
+        line-height: 1.1;
+    }
+
+    body[data-view="logs"] .logs-shell {
+        padding: 8px;
+        border-radius: 18px;
+    }
+
+    body[data-view="logs"] .log-console {
+        min-height: clamp(240px, 44vh, 380px);
+        padding: 14px;
+        border-radius: 14px;
+    }
+
+    body[data-view="logs"] .log-console.empty {
+        padding: 18px;
+    }
+
     .file-table-head {
         display: none;
     }
@@ -1483,13 +1556,71 @@ button {
         font-size: 0.78rem;
     }
 
-    .logs-toolbar {
-        align-items: stretch;
+    body[data-view="logs"] #logsPanel {
+        padding: 14px;
     }
 
-    .logs-toolbar .inline-actions {
+    body[data-view="logs"] .logs-topbar {
+        gap: 8px;
+    }
+
+    body[data-view="logs"] .logs-title .eyebrow {
+        margin-bottom: 2px;
+        font-size: 0.7rem;
+    }
+
+    body[data-view="logs"] .logs-title h3 {
+        font-size: 1rem;
+        line-height: 1.08;
+    }
+
+    body[data-view="logs"] .logs-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: nowrap;
         width: 100%;
-        justify-content: space-between;
+    }
+
+    body[data-view="logs"] .logs-toolbar .subtabs,
+    body[data-view="logs"] .logs-toolbar .inline-actions,
+    body[data-view="logs"] .logs-presets {
+        flex-wrap: nowrap;
+    }
+
+    body[data-view="logs"] .logs-toolbar .subtabs {
+        min-width: 0;
+    }
+
+    body[data-view="logs"] .logs-toolbar .inline-actions {
+        width: auto;
+        min-width: 0;
+        margin-left: auto;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+
+    body[data-view="logs"] .logs-presets .ghost-btn,
+    body[data-view="logs"] #refreshLogsBtn,
+    body[data-view="logs"] .subtab {
+        min-height: 36px;
+        padding: 0 12px;
+    }
+
+    body[data-view="logs"] .logs-shell {
+        padding: 7px;
+        border-radius: 16px;
+    }
+
+    body[data-view="logs"] .log-console {
+        min-height: clamp(220px, 40vh, 320px);
+        padding: 13px;
+        font-size: 0.8rem;
+    }
+
+    body[data-view="logs"] .log-console.empty {
+        justify-content: center;
+        text-align: center;
     }
 
     .bottom-nav {
