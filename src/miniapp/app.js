@@ -1,14 +1,16 @@
 (function () {
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
     const MOBILE_MEDIA = "(max-width: 980px)";
-    const VIEWS = new Set(["apps", "overview", "logs", "files"]);
+    const PRIMARY_VIEWS = new Set(["app", "status", "vps", "user"]);
+    const DETAIL_VIEWS = new Set(["overview", "logs", "files"]);
 
     const state = {
         initData: tg && tg.initData ? tg.initData : "",
         apps: [],
         selectedApp: null,
         appDetail: null,
-        currentView: "apps",
+        currentView: "app",
+        detailView: "overview",
         appFilter: "all",
         appQuery: "",
         filePath: ".",
@@ -16,7 +18,11 @@
         currentFileDownloadPath: null,
         logs: { stdout: "", stderr: "" },
         activeLogTab: "stdout",
-        logLines: 80
+        logLines: 80,
+        summary: {},
+        vps: {},
+        user: null,
+        webAppUrl: ""
     };
 
     const els = {};
@@ -30,9 +36,10 @@
         applyTelegramColors();
         updateFilterButtons();
         updateLogLineButtons();
-        renderSummary({ summary: {}, vps: {}, apps: [] });
+        renderSummary({ summary: {}, vps: {}, apps: [], user: null, webAppUrl: "" });
         renderEmptyState();
-        state.currentView = isMobileView() ? "apps" : "overview";
+        state.currentView = "app";
+        state.detailView = "overview";
         renderNavigationState();
 
         if (!state.initData) {
@@ -91,6 +98,14 @@
         els.previewTitle = document.getElementById("previewTitle");
         els.filePreview = document.getElementById("filePreview");
         els.downloadFileBtn = document.getElementById("downloadFileBtn");
+        els.statusPanel = document.getElementById("statusPanel");
+        els.statusCards = document.getElementById("statusCards");
+        els.runningAppsList = document.getElementById("runningAppsList");
+        els.vpsPanel = document.getElementById("vpsPanel");
+        els.vpsCards = document.getElementById("vpsCards");
+        els.vpsInfoGrid = document.getElementById("vpsInfoGrid");
+        els.userPanel = document.getElementById("userPanel");
+        els.userInfoGrid = document.getElementById("userInfoGrid");
         els.busyOverlay = document.getElementById("busyOverlay");
         els.busyText = document.getElementById("busyText");
         els.toast = document.getElementById("toast");
@@ -115,13 +130,13 @@
 
         els.contentTabs.forEach((button) => {
             button.addEventListener("click", () => {
-                handleDesktopTabPress(button.dataset.viewTarget || "overview");
+                handleDetailTabPress(button.dataset.viewTarget || "overview");
             });
         });
 
         els.bottomTabs.forEach((button) => {
             button.addEventListener("click", () => {
-                handleBottomTabPress(button.dataset.viewTarget || "apps");
+                handleBottomTabPress(button.dataset.viewTarget || "app");
             });
         });
 
@@ -155,8 +170,13 @@
             if (tg.BackButton && typeof tg.BackButton.onClick === "function") {
                 tg.BackButton.onClick(() => {
                     if (!isMobileView()) return;
-                    if (state.currentView === "apps") return;
-                    setCurrentView("apps", { scroll: false, silent: true });
+                    if (state.currentView !== "app") {
+                        setCurrentView("app", { scroll: false, silent: true });
+                        return;
+                    }
+                    if (state.detailView !== "overview") {
+                        setDetailView("overview", { scroll: false, silent: true });
+                    }
                 });
             }
         } catch {
@@ -191,15 +211,8 @@
     }
 
     function handleViewportChange() {
-        if (isMobileView()) {
-            if (!state.selectedApp) {
-                state.currentView = "apps";
-            } else if (!VIEWS.has(state.currentView)) {
-                state.currentView = "overview";
-            }
-        } else if (state.currentView === "apps") {
-            state.currentView = "overview";
-        }
+        if (!PRIMARY_VIEWS.has(state.currentView)) state.currentView = "app";
+        if (!DETAIL_VIEWS.has(state.detailView)) state.detailView = "overview";
 
         renderNavigationState();
     }
@@ -230,7 +243,7 @@
 
             clearSelectedState();
             renderEmptyState();
-            setCurrentView(isMobileView() ? "apps" : "overview", { scroll: false, silent: true });
+            setCurrentView("app", { scroll: false, silent: true });
         } catch (err) {
             showToast(extractError(err), "error");
         } finally {
@@ -244,6 +257,11 @@
         const memory = vps.memory || {};
         const disk = vps.disk || {};
 
+        state.summary = summary;
+        state.vps = vps;
+        state.user = payload.user || state.user;
+        state.webAppUrl = payload.webAppUrl || state.webAppUrl || "";
+
         els.totalApps.textContent = String(summary.totalApps || 0);
         els.pinnedApps.textContent = `${summary.pinnedApps || 0} pinned`;
         els.runningApps.textContent = String(summary.runningApps || 0);
@@ -253,6 +271,10 @@
         els.diskStat.textContent = `${disk.used || "-"} / ${disk.total || "-"}`;
         els.hostStat.textContent = `${vps.host || "-"} | ${vps.os || "-"}`;
         els.appCountPill.textContent = String(state.apps.length);
+
+        renderStatusPanel();
+        renderVpsPanel();
+        renderUserPanel();
     }
 
     function renderApps() {
@@ -309,7 +331,8 @@
             renderSelectedApp();
             await Promise.all([refreshLogs(), refreshFiles()]);
             if (focus && isMobileView()) {
-                setCurrentView("overview", { scroll: true, silent: true });
+                setCurrentView("app", { scroll: true, silent: true });
+                setDetailView("overview", { scroll: false, silent: true });
             } else {
                 renderNavigationState();
             }
@@ -418,7 +441,7 @@
     async function runAction(action) {
         if (!state.selectedApp) {
             showToast("Select an app first.", "error");
-            setCurrentView("apps", { scroll: true, silent: true });
+            setCurrentView("app", { scroll: true, silent: true });
             return;
         }
 
@@ -443,7 +466,8 @@
                 clearSelectedState();
                 renderEmptyState();
                 await refreshAllSilently();
-                setCurrentView(isMobileView() ? "apps" : "overview", { scroll: false, silent: true });
+                setCurrentView("app", { scroll: false, silent: true });
+                setDetailView("overview", { scroll: false, silent: true });
                 return;
             }
 
@@ -469,7 +493,8 @@
         if (state.selectedApp && !state.apps.some((app) => app.name === state.selectedApp)) {
             clearSelectedState();
             renderEmptyState();
-            setCurrentView(isMobileView() ? "apps" : "overview", { scroll: false, silent: true });
+            setCurrentView("app", { scroll: false, silent: true });
+            setDetailView("overview", { scroll: false, silent: true });
         }
     }
 
@@ -629,7 +654,8 @@
 
         await refreshFiles();
         if (isMobileView()) {
-            setCurrentView("files", { scroll: false, silent: true });
+            setCurrentView("app", { scroll: false, silent: true });
+            setDetailView("files", { scroll: false, silent: true });
         }
     }
 
@@ -659,7 +685,8 @@
             }
 
             if (isMobileView()) {
-                setCurrentView("files", { scroll: false, silent: true });
+                setCurrentView("app", { scroll: false, silent: true });
+                setDetailView("files", { scroll: false, silent: true });
             }
         } catch (err) {
             showToast(extractError(err), "error");
@@ -700,26 +727,20 @@
         setCurrentView(view, { scroll: true });
     }
 
-    function handleDesktopTabPress(view) {
+    function handleDetailTabPress(view) {
         if (!state.selectedApp) {
             showToast("Select an app first.", "error");
+            setCurrentView("app", { scroll: false, silent: true });
             return;
         }
-        setCurrentView(view, { scroll: false, silent: true });
+        setCurrentView("app", { scroll: false, silent: true });
+        setDetailView(view, { scroll: false, silent: true });
     }
 
     function setCurrentView(view, options) {
         const { scroll = true, silent = false } = options || {};
-        let nextView = VIEWS.has(view) ? view : (isMobileView() ? "apps" : "overview");
-
-        if (!isMobileView() && nextView === "apps") {
-            nextView = "overview";
-        }
-
-        if (isMobileView() && nextView !== "apps" && !state.selectedApp) {
-            if (!silent) showToast("Select an app first.", "error");
-            nextView = "apps";
-        }
+        let nextView = PRIMARY_VIEWS.has(view) ? view : "app";
+        if (!isMobileView()) nextView = "app";
 
         state.currentView = nextView;
         renderNavigationState();
@@ -729,28 +750,50 @@
         }
     }
 
+    function setDetailView(view, options) {
+        const { scroll = true, silent = false } = options || {};
+        let nextView = DETAIL_VIEWS.has(view) ? view : "overview";
+
+        if (!state.selectedApp && nextView !== "overview") {
+            if (!silent) showToast("Select an app first.", "error");
+            nextView = "overview";
+        }
+
+        state.detailView = nextView;
+        renderNavigationState();
+
+        if (scroll && isMobileView()) {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+    }
+
     function renderNavigationState() {
         const mobile = isMobileView();
-        const desktopView = state.currentView === "apps" ? "overview" : state.currentView;
-        const activeDetailView = mobile ? (state.currentView === "apps" ? "overview" : state.currentView) : desktopView;
+        const bodyView = mobile
+            ? (state.currentView === "app" ? state.detailView : state.currentView)
+            : state.detailView;
 
-        document.body.dataset.view = state.currentView;
+        document.body.dataset.view = bodyView;
 
-        els.appsPanel.classList.toggle("is-active", mobile ? state.currentView === "apps" : true);
-        els.detailShell.classList.toggle("is-active", mobile ? state.currentView !== "apps" : true);
+        const showAppWorkspace = mobile ? state.currentView === "app" : true;
+        els.appsPanel.classList.toggle("is-active", showAppWorkspace);
+        els.detailShell.classList.toggle("is-active", showAppWorkspace);
+        if (els.statusPanel) els.statusPanel.classList.toggle("is-active", mobile && state.currentView === "status");
+        if (els.vpsPanel) els.vpsPanel.classList.toggle("is-active", mobile && state.currentView === "vps");
+        if (els.userPanel) els.userPanel.classList.toggle("is-active", mobile && state.currentView === "user");
 
         els.contentTabs.forEach((button) => {
-            button.classList.toggle("active", button.dataset.viewTarget === desktopView);
+            button.classList.toggle("active", button.dataset.viewTarget === state.detailView);
         });
         els.bottomTabs.forEach((button) => {
             button.classList.toggle("active", button.dataset.viewTarget === state.currentView);
         });
 
-        els.overviewPanel.classList.toggle("is-active", activeDetailView === "overview");
-        els.logsPanel.classList.toggle("is-active", activeDetailView === "logs");
-        els.filesPanel.classList.toggle("is-active", activeDetailView === "files");
+        els.overviewPanel.classList.toggle("is-active", state.detailView === "overview");
+        els.logsPanel.classList.toggle("is-active", state.detailView === "logs");
+        els.filesPanel.classList.toggle("is-active", state.detailView === "files");
 
-        els.emptySelectionNotice.classList.toggle("hidden", !(mobile && !state.selectedApp));
+        els.emptySelectionNotice.classList.toggle("hidden", !(mobile && state.currentView === "app" && !state.selectedApp));
         syncBackButton();
     }
 
@@ -758,8 +801,16 @@
         if (!tg || !tg.BackButton) return;
 
         try {
-            if (isMobileView() && state.currentView !== "apps") tg.BackButton.show();
-            else tg.BackButton.hide();
+            if (!isMobileView()) {
+                tg.BackButton.hide();
+                return;
+            }
+
+            if (state.currentView !== "app" || state.detailView !== "overview") {
+                tg.BackButton.show();
+            } else {
+                tg.BackButton.hide();
+            }
         } catch {
             // ignore bridge errors
         }
@@ -782,6 +833,84 @@
         state.filePath = ".";
         state.currentFilePath = null;
         state.currentFileDownloadPath = null;
+    }
+
+    function renderStatusPanel() {
+        if (!els.statusCards || !els.runningAppsList) return;
+
+        const summary = state.summary || {};
+        const runningApps = state.apps.filter((app) => app.status === "running");
+        const stoppedApps = Math.max((summary.totalApps || 0) - (summary.runningApps || 0), 0);
+        const selectedLabel = state.selectedApp || "No app selected";
+
+        els.statusCards.innerHTML = [
+            metricPanelCard("Apps", String(summary.totalApps || 0), `${summary.pinnedApps || 0} pinned`, "warm"),
+            metricPanelCard("Running", String(summary.runningApps || 0), `${stoppedApps} stopped`, "success"),
+            metricPanelCard("Selected", selectedLabel, state.appDetail ? (state.appDetail.branch || "-") : "Choose from App", "accent")
+        ].join("");
+
+        if (!runningApps.length) {
+            els.runningAppsList.innerHTML = '<div class="empty-note">No apps are running right now.</div>';
+            return;
+        }
+
+        els.runningAppsList.innerHTML = runningApps.map((app) => `
+            <article class="status-row">
+                <div class="status-row-main">
+                    <strong>${escapeHtml(app.name)}</strong>
+                    <span>${escapeHtml(app.branch || "main")}</span>
+                </div>
+                <span class="status-badge running">running</span>
+            </article>
+        `).join("");
+    }
+
+    function renderVpsPanel() {
+        if (!els.vpsCards || !els.vpsInfoGrid) return;
+
+        const vps = state.vps || {};
+        const memory = vps.memory || {};
+        const disk = vps.disk || {};
+
+        els.vpsCards.innerHTML = [
+            metricPanelCard("Memory", `${memory.usedLabel || "-"} / ${memory.totalLabel || "-"}`, `${memory.percent ?? "-"}% used`, "accent"),
+            metricPanelCard("Disk", `${disk.used || "-"} / ${disk.total || "-"}`, disk.percent || "-", "warm"),
+            metricPanelCard("CPU", String(vps.cpuCount || 0), vps.cpuModel || "-", "success"),
+            metricPanelCard("Bot", vps.botUptime || "-", `Host uptime ${vps.uptime || "-"}`, "")
+        ].join("");
+
+        els.vpsInfoGrid.innerHTML = [
+            infoCard("Host", vps.host || "-"),
+            infoCard("OS", vps.os || "-"),
+            infoCard("Node", vps.node || "-"),
+            infoCard("Load", Array.isArray(vps.load) ? vps.load.join(" / ") : "-")
+        ].join("");
+    }
+
+    function renderUserPanel() {
+        if (!els.userInfoGrid) return;
+
+        const user = state.user || {};
+        const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+
+        els.userInfoGrid.innerHTML = [
+            infoCard("Name", fullName || "-"),
+            infoCard("Username", user.username ? `@${user.username}` : "-"),
+            infoCard("Telegram ID", user.id ? String(user.id) : "-"),
+            infoCard("Role", user.id ? "Admin" : "Telegram auth required"),
+            infoCard("Mini App URL", state.webAppUrl || "-")
+        ].join("");
+    }
+
+    function metricPanelCard(label, value, hint, tone) {
+        const classes = tone ? ` ${escapeAttr(tone)}` : "";
+        return `
+            <article class="aux-card${classes}">
+                <span class="aux-card-label">${escapeHtml(label)}</span>
+                <strong class="aux-card-value">${escapeHtml(value || "-")}</strong>
+                <small class="aux-card-hint">${escapeHtml(hint || "-")}</small>
+            </article>
+        `;
     }
 
     async function api(url, options) {

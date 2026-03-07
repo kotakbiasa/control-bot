@@ -100,7 +100,7 @@
                     <div id="summaryChips" class="summary-chips"></div>
                 </article>
 
-                <nav class="detail-tabs surface desktop-only" aria-label="Detail tabs">
+                <nav class="detail-tabs surface" aria-label="Detail tabs">
                     <button class="content-tab active" data-view-target="overview" type="button">Overview</button>
                     <button class="content-tab" data-view-target="logs" type="button">Logs</button>
                     <button class="content-tab" data-view-target="files" type="button">Files</button>
@@ -200,14 +200,54 @@
                     </div>
                 </section>
             </section>
+
+            <section id="statusPanel" class="aux-panel panel-screen surface mobile-only">
+                <div class="panel-head">
+                    <div>
+                        <p class="eyebrow">Status</p>
+                        <h3>Bot and app activity</h3>
+                    </div>
+                </div>
+                <div id="statusCards" class="aux-grid"></div>
+                <section class="aux-section">
+                    <div class="panel-head compact-head">
+                        <div>
+                            <p class="eyebrow">Running Apps</p>
+                            <h3>Live processes</h3>
+                        </div>
+                    </div>
+                    <div id="runningAppsList" class="status-list"></div>
+                </section>
+            </section>
+
+            <section id="vpsPanel" class="aux-panel panel-screen surface mobile-only">
+                <div class="panel-head">
+                    <div>
+                        <p class="eyebrow">VPS</p>
+                        <h3>Server health and capacity</h3>
+                    </div>
+                </div>
+                <div id="vpsCards" class="aux-grid"></div>
+                <div id="vpsInfoGrid" class="info-grid compact-grid"></div>
+            </section>
+
+            <section id="userPanel" class="aux-panel panel-screen surface mobile-only">
+                <div class="panel-head">
+                    <div>
+                        <p class="eyebrow">User</p>
+                        <h3>Telegram session info</h3>
+                    </div>
+                </div>
+                <div id="userInfoGrid" class="info-grid compact-grid"></div>
+            </section>
         </section>
     </main>
 
     <nav id="bottomNav" class="bottom-nav surface mobile-only" aria-label="Bottom navigation">
-        <button class="bottom-tab active" data-view-target="apps" type="button">Apps</button>
-        <button class="bottom-tab" data-view-target="overview" type="button">Overview</button>
-        <button class="bottom-tab" data-view-target="logs" type="button">Logs</button>
-        <button class="bottom-tab" data-view-target="files" type="button">Files</button>
+        <button class="bottom-tab active" data-view-target="app" type="button">App</button>
+        <button class="bottom-tab" data-view-target="status" type="button">Status</button>
+        <button class="bottom-tab" data-view-target="vps" type="button">VPS</button>
+        <button class="bottom-tab" data-view-target="user" type="button">User</button>
     </nav>
 
     <div id="busyOverlay" class="busy-overlay hidden">
