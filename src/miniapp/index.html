@@ -84,7 +84,7 @@
             <section id="detailShell" class="detail-shell">
                 <article class="selected-card surface">
                     <div class="selected-head">
-                        <div>
+                        <div class="selected-identity">
                             <p class="eyebrow">Selected App</p>
                             <h2 id="appTitle">Select an app</h2>
                             <p id="appSubtitle" class="app-subtitle">Choose an app from the list to inspect its state.</p>
@@ -148,19 +148,23 @@
                             <p class="eyebrow">Logs</p>
                             <h3>Recent process output</h3>
                         </div>
-                        <div class="inline-actions">
-                            <button class="ghost-btn log-line-btn active" data-lines="80" type="button">80</button>
-                            <button class="ghost-btn log-line-btn" data-lines="200" type="button">200</button>
-                            <button id="refreshLogsBtn" class="ghost-btn" type="button">Reload</button>
+                    </div>
+
+                    <div class="logs-shell">
+                        <div class="logs-toolbar">
+                            <div class="subtabs">
+                                <button id="stdoutTab" class="subtab active" type="button">stdout</button>
+                                <button id="stderrTab" class="subtab" type="button">stderr</button>
+                            </div>
+                            <div class="inline-actions">
+                                <button class="ghost-btn log-line-btn active" data-lines="80" type="button">80</button>
+                                <button class="ghost-btn log-line-btn" data-lines="200" type="button">200</button>
+                                <button id="refreshLogsBtn" class="ghost-btn" type="button">Reload</button>
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="subtabs">
-                        <button id="stdoutTab" class="subtab active" type="button">stdout</button>
-                        <button id="stderrTab" class="subtab" type="button">stderr</button>
+                        <pre id="logViewer" class="code-box log-console">Choose an app to load logs.</pre>
                     </div>
-
-                    <pre id="logViewer" class="code-box">Choose an app to load logs.</pre>
                 </section>
 
                 <section id="filesPanel" class="detail-panel panel-screen surface">

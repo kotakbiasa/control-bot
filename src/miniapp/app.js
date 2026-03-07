@@ -338,20 +338,24 @@
 
         const runtime = app.runtime || {};
         const usage = runtime.usage || {};
-        const chips = [
-            `Status: ${runtime.status || "stopped"}`,
-            app.branch ? `Branch: ${app.branch}` : null,
-            runtime.pid ? `PID: ${runtime.pid}` : "PID: -",
-            app.pinned ? "Pinned" : null,
-            app.lastDeployAt ? `Deploy: ${app.lastDeployAt}` : null,
-            usage.cpu ? `CPU: ${usage.cpu}%` : null
+        const summaryItems = [
+            {
+                label: "Status",
+                value: runtime.status || "stopped",
+                tone: runtime.status === "running" ? "success" : "danger"
+            },
+            { label: "Branch", value: app.branch || "-" },
+            { label: "PID", value: runtime.pid || "-" },
+            { label: "Deploy", value: app.lastDeployAt || "-" },
+            { label: "CPU", value: usage.cpu ? `${usage.cpu}%` : "-" },
+            app.pinned ? { label: "Mode", value: "Pinned", tone: "warm" } : null
         ].filter(Boolean);
 
         els.appTitle.textContent = app.name || "Unnamed app";
         els.appSubtitle.textContent = app.repo || app.directory || "No repository configured.";
         els.appStatusBadge.textContent = runtime.status || "stopped";
         els.appStatusBadge.className = `status-badge ${runtime.status === "running" ? "running" : "stopped"}`;
-        els.summaryChips.innerHTML = chips.map((chip) => `<span class="info-chip">${escapeHtml(chip)}</span>`).join("");
+        els.summaryChips.innerHTML = summaryItems.map((item) => summaryCard(item.label, item.value, item.tone)).join("");
 
         els.appMeta.innerHTML = [
             infoCard("Repository", app.repo || "-"),
@@ -541,23 +545,58 @@
     }
 
     function renderFileList(payload) {
-        els.filePathLabel.textContent = `${state.selectedApp}:${payload.path}`;
+        const currentPathLabel = payload.path === "." ? state.selectedApp : `${state.selectedApp}/${payload.path}`;
+        const items = Array.isArray(payload.items) ? [...payload.items] : [];
+        items.sort((left, right) => {
+            if (left.type !== right.type) return left.type === "dir" ? -1 : 1;
+            return String(left.name || "").localeCompare(String(right.name || ""), undefined, {
+                numeric: true,
+                sensitivity: "base"
+            });
+        });
+
+        els.filePathLabel.textContent = currentPathLabel;
         els.fileUpBtn.disabled = !payload.parentPath;
 
-        if (!payload.items || payload.items.length === 0) {
+        if (!items.length && !payload.parentPath) {
             els.fileList.innerHTML = '<div class="empty-note">This folder is empty.</div>';
             return;
         }
 
-        els.fileList.innerHTML = payload.items.map((item) => `
-            <button class="file-row" data-path="${escapeAttr(item.path)}" data-type="${escapeAttr(item.type)}" type="button">
-                <div class="file-row-head">
+        const rows = [];
+
+        if (payload.parentPath) {
+            rows.push(`
+                <button class="file-row file-row-parent" data-path="${escapeAttr(payload.parentPath)}" data-type="dir" type="button">
+                    <span class="file-icon up" aria-hidden="true"></span>
+                    <span class="file-main">
+                        <span class="file-name">..</span>
+                        <span class="file-subtitle">Parent folder</span>
+                    </span>
+                    <span class="file-kind">Up</span>
+                </button>
+            `);
+        }
+
+        rows.push(...items.map((item) => `
+            <button class="file-row ${item.type === "dir" ? "is-dir" : "is-file"}" data-path="${escapeAttr(item.path)}" data-type="${escapeAttr(item.type)}" type="button">
+                <span class="file-icon ${item.type === "dir" ? "dir" : "file"}" aria-hidden="true"></span>
+                <span class="file-main">
                     <span class="file-name">${escapeHtml(item.name)}${item.type === "dir" ? "/" : ""}</span>
-                    <span class="app-tag">${escapeHtml(item.type)}</span>
-                </div>
-                <div class="file-meta">${escapeHtml(item.sizeLabel || "-")} | ${escapeHtml(item.modifiedAt || "-")}</div>
+                    <span class="file-subtitle">${escapeHtml(item.modifiedAt || "-")}</span>
+                </span>
+                <span class="file-kind">${escapeHtml(item.type === "dir" ? "Folder" : item.sizeLabel || "-")}</span>
             </button>
-        `).join("");
+        `));
+
+        els.fileList.innerHTML = `
+            <div class="file-table-head">
+                <span>Name</span>
+                <span>Modified</span>
+                <span>Type / Size</span>
+            </div>
+            <div class="file-rows">${rows.join("")}</div>
+        `;
 
         els.fileList.querySelectorAll("[data-path]").forEach((button) => {
             button.addEventListener("click", () => {
@@ -802,6 +841,15 @@
             <div class="info-card">
                 <span class="info-card-label">${escapeHtml(label)}</span>
                 <span class="info-card-value">${escapeHtml(value || "-")}</span>
+            </div>
+        `;
+    }
+
+    function summaryCard(label, value, tone) {
+        return `
+            <div class="summary-card${tone ? ` ${escapeAttr(tone)}` : ""}">
+                <span class="summary-card-label">${escapeHtml(label)}</span>
+                <strong class="summary-card-value">${escapeHtml(value || "-")}</strong>
             </div>
         `;
     }
