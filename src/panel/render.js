@@ -173,52 +173,52 @@ function panelKeyboard(state, deps) {
         }
 
         rows.push([
-            { text: "⚙️ Pengaturan Bot", callback_data: "panel:nav:bot_settings", style: "primary" },
+            { text: "⚙️ Pengaturan Bot", callback_data: "panel:nav:bot_settings" },
             { text: "🔄 Rolling Restart", callback_data: "panel:rollingrestart", style: "danger" }
         ]);
     } else if (view === "bot_settings") {
         rows.push([
-            { text: "👥 Lihat Admin", callback_data: "panel:bot:admins", style: "primary" },
-            { text: "⏰ Set Timezone", callback_data: "panel:bot:settz", style: "primary" }
+            { text: "👥 Lihat Admin", callback_data: "panel:bot:admins" },
+            { text: "⏰ Set Timezone", callback_data: "panel:bot:settz" }
         ]);
         rows.push([
             { text: "➕ Tambah Admin", callback_data: "panel:bot:addadmin", style: "success" },
             { text: "➖ Hapus Admin", callback_data: "panel:bot:deladmin", style: "danger" }
         ]);
         rows.push([
-            { text: "📊 Set Monitor", callback_data: "panel:bot:setmonitor", style: "primary" },
-            { text: "📈 Disk Alert", callback_data: "panel:bot:setdiskalert", style: "primary" }
+            { text: "📊 Set Monitor", callback_data: "panel:bot:setmonitor" },
+            { text: "📈 Disk Alert", callback_data: "panel:bot:setdiskalert" }
         ]);
         rows.push([
-            { text: "🔗 Webhook", callback_data: "panel:bot:webhook", style: "primary" },
+            { text: "🔗 Webhook", callback_data: "panel:bot:webhook" },
             { text: db.getSettings().webhookEnabled ? "🔴 Matikan Webhook" : "✅ Aktifkan Webhook", callback_data: "panel:bot:webhooktoggle", style: db.getSettings().webhookEnabled ? "danger" : "success" }
         ]);
         rows.push([
-            { text: "💾 Auto-Backup", callback_data: "panel:bot:setbackup", style: "primary" },
-            { text: "📋 Report Sekarang", callback_data: "panel:bot:report", style: "primary" }
+            { text: "💾 Auto-Backup", callback_data: "panel:bot:setbackup" },
+            { text: "📋 Report Sekarang", callback_data: "panel:bot:report" }
         ]);
         rows.push([
-            { text: "📝 Audit Log", callback_data: "panel:bot:auditlog", style: "primary" },
-            { text: "📦 Restore Backup", callback_data: "panel:bot:restore", style: "primary" }
+            { text: "📝 Audit Log", callback_data: "panel:bot:auditlog" },
+            { text: "📦 Restore Backup", callback_data: "panel:bot:restore" }
         ]);
         rows.push([
-            { text: db.getSettings().pin ? "🔒 PIN (Aktif)" : "🔓 Set PIN", callback_data: "panel:bot:setpin", style: "primary" }
+            { text: db.getSettings().pin ? "🔒 PIN (Aktif)" : "🔓 Set PIN", callback_data: "panel:bot:setpin" }
         ]);
         rows.push([
-            { text: "🤖 Update Bot", callback_data: "panel:bot:update", style: "primary" },
+            { text: "🤖 Update Bot", callback_data: "panel:bot:update" },
             { text: "⚡ Restart Bot", callback_data: "panel:bot:restart", style: "danger" }
         ]);
         rows.push([
-            { text: "🔙 Kembali", callback_data: "panel:nav:main", style: "primary" }
+            { text: "🔙 Kembali", callback_data: "panel:nav:main" }
         ]);
     } else if (view === "vps") {
         rows.push([
-            { text: "📦 Backup Data", callback_data: "panel:vps:backup", style: "primary" },
+            { text: "📦 Backup Data", callback_data: "panel:vps:backup" },
             { text: "🧹 Cleanup System", callback_data: "panel:vps:cleanup", style: "danger" }
         ]);
         rows.push([
-            { text: "🔄 Refresh VPS", callback_data: "panel:vps", style: "primary" },
-            { text: "🔙 Kembali", callback_data: "panel:nav:main", style: "primary" }
+            { text: "🔄 Refresh VPS", callback_data: "panel:vps" },
+            { text: "🔙 Kembali", callback_data: "panel:nav:main" }
         ]);
     } else if (view === "app" && synced.selectedApp) {
         if (synced.confirmRemove) {
@@ -226,7 +226,7 @@ function panelKeyboard(state, deps) {
                 { text: "⚠️ Hapus DB Saja", callback_data: "panel:run:rmkeep", style: "danger" },
                 { text: "⚠️ Hapus DB & File", callback_data: "panel:run:rmfiles", style: "danger" }
             ]);
-            rows.push([{ text: "✖️ Batal Hapus", callback_data: "panel:run:rmcancel", style: "primary" }]);
+            rows.push([{ text: "✖️ Batal Hapus", callback_data: "panel:run:rmcancel" }]);
         } else {
             rows.push(...appControlTemplateButtons({
                 startCallback: "panel:run:start",
@@ -242,24 +242,24 @@ function panelKeyboard(state, deps) {
                 { text: "⏹️ Stop", callback_data: "panel:run:stop", style: "danger" }
             ]);
             rows.push([
-                { text: "🚀 Deploy", callback_data: "panel:run:deploy", style: "primary" },
-                { text: "📦 Update", callback_data: "panel:run:update", style: "primary" }
+                { text: "🚀 Deploy", callback_data: "panel:run:deploy" },
+                { text: "📦 Update", callback_data: "panel:run:update" }
             ]);
             rows.push([
-                { text: "📋 Logs 80", callback_data: "panel:run:log80", style: "primary" },
-                { text: "📋 Logs 200", callback_data: "panel:run:log200", style: "primary" }
+                { text: "📋 Logs 80", callback_data: "panel:run:log80" },
+                { text: "📋 Logs 200", callback_data: "panel:run:log200" }
             ]);
             rows.push([
-                { text: "📄 Unduh Logs", callback_data: "panel:run:logfile", style: "primary" }
+                { text: "📄 Unduh Logs", callback_data: "panel:run:logfile" }
             ]);
             rows.push([
-                { text: "📁 File Manager", callback_data: "panel:fm:open", style: "primary" },
-                { text: "⚙️ Settings", callback_data: `panel:nav:settings:${callbackAppName(synced.selectedApp)}`, style: "primary" }
+                { text: "📁 File Manager", callback_data: "panel:fm:open" },
+                { text: "⚙️ Settings", callback_data: `panel:nav:settings:${callbackAppName(synced.selectedApp)}` }
             ]);
             const appData = apps[synced.selectedApp];
             rows.push([
-                { text: appData && appData.pinned ? "📌 Unpin" : "📌 Pin", callback_data: "panel:run:pin", style: "primary" },
-                { text: "🔙 Kembali", callback_data: "panel:nav:main", style: "primary" }
+                { text: appData && appData.pinned ? "📌 Unpin" : "📌 Pin", callback_data: "panel:run:pin" },
+                { text: "🔙 Kembali", callback_data: "panel:nav:main" }
             ]);
         }
     } else if (view === "file_manager" && synced.selectedApp) {

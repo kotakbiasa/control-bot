@@ -18,7 +18,7 @@ function register(bot, deps) {
                 `Total app terdaftar: ${Object.keys(db.getApps()).length}`
             ].join("\n"),
             {
-                reply_markup: buildInlineKeyboard([[{ text: "Buka Panel", callback_data: "panel:home", style: "primary" }]])
+                reply_markup: buildInlineKeyboard([[{ text: "Buka Panel", callback_data: "panel:home" }]])
             }
         );
     });
@@ -71,7 +71,7 @@ function register(bot, deps) {
         }
         const lines = names.map((name) => appSummary(name, apps[name], formatUptime));
         await ctx.reply(lines.join("\n\n"), {
-            reply_markup: buildInlineKeyboard([[{ text: "Buka Panel", callback_data: "panel:home", style: "primary" }]])
+            reply_markup: buildInlineKeyboard([[{ text: "Buka Panel", callback_data: "panel:home" }]])
         });
     });
 

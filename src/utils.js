@@ -177,10 +177,10 @@ function appControlTemplateButtons(options = {}) {
   return [
     [
       { text: startText, callback_data: startCallback, style: "success" },
-      { text: statusText, callback_data: statusCallback, style: "primary" }
+      { text: statusText, callback_data: statusCallback }
     ],
     [
-      { text: restartText, callback_data: restartCallback, style: "primary" },
+      { text: restartText, callback_data: restartCallback },
       { text: deleteText, callback_data: deleteCallback, style: "danger" }
     ]
   ];
