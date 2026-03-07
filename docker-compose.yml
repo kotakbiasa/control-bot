@@ -1,0 +1,17 @@
+services:
+  control-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: control-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Asia/Makassar}
+    volumes:
+      - ./data:/app/data
+      - ./deployments:/app/deployments
+      - ./logs:/app/logs
+    ports:
+      - "9876:9876"

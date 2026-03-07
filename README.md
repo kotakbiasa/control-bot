@@ -7,6 +7,7 @@ Semua konfigurasi disimpan lokal di file JSON (`data/db.json`).
 
 - Multi app management (bisa tambah beberapa app sekaligus)
 - Inline control panel (tombol Telegram, bukan hanya command text)
+- Telegram Mini App untuk kontrol via web + file manager
 - Monitor spec & usage VPS (CPU, RAM, disk, uptime, usage app running)
 - Deploy dari Git repo (clone/pull)
 - Start, stop, restart proses app
@@ -43,6 +44,9 @@ cp .env.example .env
 ```env
 BOT_TOKEN=isi_token_botfather
 ADMIN_IDS=123456789,987654321
+TZ=Asia/Makassar
+WEB_PORT=9876
+PUBLIC_BASE_URL=https://your-domain.example.com
 ```
 
 ## Menjalankan Bot
@@ -57,6 +61,42 @@ npm start
 ```
 
 Bot akan berjalan via long-polling.
+
+## Menjalankan Dengan Docker
+
+1. Siapkan `.env`:
+```bash
+cp .env.example .env
+```
+2. Isi minimal:
+```env
+BOT_TOKEN=isi_token_botfather
+ADMIN_IDS=123456789,987654321
+TZ=Asia/Makassar
+WEB_PORT=9876
+PUBLIC_BASE_URL=https://your-domain.example.com
+```
+3. Build + jalankan:
+```bash
+docker compose up -d --build
+```
+4. Cek log:
+```bash
+docker compose logs -f control-bot
+```
+5. Stop:
+```bash
+docker compose down
+```
+
+Data penting tetap persisten lewat volume:
+- `./data -> /app/data`
+- `./deployments -> /app/deployments`
+- `./logs -> /app/logs`
+
+Catatan:
+- App yang kamu `deploy/start` dari bot akan dijalankan di dalam container ini.
+- Port `9876` diekspos untuk Mini App web dan webhook internal bot.
 
 ### Script Install + Jalankan Otomatis
 
@@ -78,6 +118,7 @@ Output background:
 ## Command Lengkap
 
 - `/panel` (menu inline)
+- `/web` (buka Telegram Mini App)
 - `/vps` (spec + usage VPS)
 - `/help`
 - `/apps`
@@ -106,6 +147,35 @@ Mode terbaru: semua kontrol inline berjalan dalam **satu pesan** (message di-edi
 2. Pilih app dari daftar tombol
 3. Klik aksi: `start`, `stop`, `restart`, `deploy`, `deploy + restart`, `update`, `logs`, `vars`, `remove`
 4. Klik `VPS Info` untuk lihat resource server real-time
+
+## Mini App Web
+
+Mini App tersedia di path:
+```text
+/miniapp
+```
+
+Agar tombol `Mini App` muncul di bot dan bisa dibuka dari Telegram:
+1. Pastikan server ini bisa diakses publik via HTTPS.
+2. Set `PUBLIC_BASE_URL` ke base URL publik server.
+3. Jalankan bot, lalu buka `/start` atau `/web`.
+4. Jika URL valid, bot juga akan mencoba set menu button Telegram ke `Mini App` otomatis saat startup.
+
+Contoh:
+```env
+PUBLIC_BASE_URL=https://bot.example.com
+WEB_PORT=9876
+```
+
+Fitur Mini App:
+- Dashboard daftar app dan status runtime
+- Kontrol `start`, `stop`, `restart`, `deploy`, `update`, `remove`
+- Preview logs stdout/stderr
+- File manager browse folder, preview file teks, dan download file
+
+Keamanan:
+- Mini App hanya menerima request dengan `initData` Telegram yang valid
+- User Telegram tetap dicek ke daftar `ADMIN_IDS` dan admin DB
 
 ## Contoh Style Tombol
 

@@ -172,6 +172,13 @@ function panelKeyboard(state, deps) {
             rows.push(chunk);
         }
 
+        const webAppUrl = deps.webhookServer && deps.webhookServer.getWebAppUrl ? deps.webhookServer.getWebAppUrl() : null;
+        if (webAppUrl) {
+            rows.push([
+                { text: "Mini App Web", web_app: { url: webAppUrl } }
+            ]);
+        }
+
         rows.push([
             { text: "⚙️ Pengaturan Bot", callback_data: "panel:nav:bot_settings" },
             { text: "🔄 Rolling Restart", callback_data: "panel:rollingrestart", style: "danger" }

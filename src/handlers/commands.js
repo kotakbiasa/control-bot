@@ -6,6 +6,15 @@ const { buildVpsInfoText } = require("../services/vpsInfo");
 const { makeNewApp, showVarsMessage, showLogsMessage } = require("../services/appService");
 const { runShell } = require("../deployer");
 
+function buildEntryKeyboard(deps) {
+    const rows = [[{ text: "Buka Panel", callback_data: "panel:home" }]];
+    const webAppUrl = deps.webhookServer && deps.webhookServer.getWebAppUrl ? deps.webhookServer.getWebAppUrl() : null;
+    if (webAppUrl) {
+        rows[0].push({ text: "Mini App", web_app: { url: webAppUrl } });
+    }
+    return buildInlineKeyboard(rows);
+}
+
 function register(bot, deps) {
     const { db, processManager, deployer, withAppLock, DEPLOYMENTS_DIR } = deps;
 
@@ -18,7 +27,7 @@ function register(bot, deps) {
                 `Total app terdaftar: ${Object.keys(db.getApps()).length}`
             ].join("\n"),
             {
-                reply_markup: buildInlineKeyboard([[{ text: "Buka Panel", callback_data: "panel:home" }]])
+                reply_markup: buildEntryKeyboard(deps)
             }
         );
     });
@@ -28,6 +37,7 @@ function register(bot, deps) {
             [
                 "Daftar command:",
                 "/panel - buka control panel inline (tombol)",
+                "/web - buka Mini App web",
                 "/settings - buka pengaturan bot",
                 "/vps - lihat spec & usage VPS",
                 "/apps - list semua app",
@@ -53,6 +63,17 @@ function register(bot, deps) {
         await renderPanel(ctx, { output: "", outputIsHtml: false, confirmRemove: false }, deps);
     });
 
+    bot.command("web", async (ctx) => {
+        const webAppUrl = deps.webhookServer && deps.webhookServer.getWebAppUrl ? deps.webhookServer.getWebAppUrl() : null;
+        if (!webAppUrl) {
+            await ctx.reply("Mini App belum dikonfigurasi. Set env PUBLIC_BASE_URL ke URL HTTPS publik server ini.");
+            return;
+        }
+        await ctx.reply("Buka Mini App untuk kontrol web dan file manager:", {
+            reply_markup: buildInlineKeyboard([[{ text: "Buka Mini App", web_app: { url: webAppUrl } }]])
+        });
+    });
+
     bot.command("settings", async (ctx) => {
         await renderPanel(ctx, { view: "bot_settings", output: "", outputIsHtml: false, confirmRemove: false }, deps);
     });
@@ -71,7 +92,7 @@ function register(bot, deps) {
         }
         const lines = names.map((name) => appSummary(name, apps[name], formatUptime));
         await ctx.reply(lines.join("\n\n"), {
-            reply_markup: buildInlineKeyboard([[{ text: "Buka Panel", callback_data: "panel:home" }]])
+            reply_markup: buildEntryKeyboard(deps)
         });
     });
 

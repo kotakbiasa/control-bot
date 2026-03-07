@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#d7ecff">
+    <title>Control Bot Mini App</title>
+    <link rel="stylesheet" href="/miniapp/styles.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="/miniapp/app.js"></script>
+</head>
+<body>
+    <div class="background-orb orb-a"></div>
+    <div class="background-orb orb-b"></div>
+    <div class="background-orb orb-c"></div>
+
+    <main class="shell">
+        <section class="glass hero">
+            <div>
+                <p class="eyebrow">Telegram Mini App</p>
+                <h1>Control Bot Web Console</h1>
+                <p class="subtitle">Control apps, inspect logs, and browse files without leaving Telegram.</p>
+            </div>
+            <div class="hero-actions">
+                <button id="refreshAllBtn" class="soft-button" type="button">Refresh</button>
+                <span id="userBadge" class="user-badge">Waiting for Telegram...</span>
+            </div>
+        </section>
+
+        <section id="authNotice" class="glass warning hidden">
+            <h2>Open this inside Telegram</h2>
+            <p>This Mini App needs Telegram WebApp auth data. Open it from the bot button, not from a regular browser tab.</p>
+        </section>
+
+        <section class="stats-grid">
+            <article class="glass stat-card">
+                <span class="stat-label">Total Apps</span>
+                <strong id="totalApps">0</strong>
+                <small id="pinnedApps">0 pinned</small>
+            </article>
+            <article class="glass stat-card">
+                <span class="stat-label">Running</span>
+                <strong id="runningApps">0</strong>
+                <small id="botUptime">Bot uptime -</small>
+            </article>
+            <article class="glass stat-card">
+                <span class="stat-label">Memory</span>
+                <strong id="memoryStat">-</strong>
+                <small id="cpuStat">CPU -</small>
+            </article>
+            <article class="glass stat-card">
+                <span class="stat-label">Disk</span>
+                <strong id="diskStat">-</strong>
+                <small id="hostStat">Host -</small>
+            </article>
+        </section>
+
+        <section class="workspace">
+            <aside class="glass rail">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">Apps</p>
+                        <h2>Live Inventory</h2>
+                    </div>
+                    <span id="appCountPill" class="pill">0</span>
+                </div>
+                <div id="appList" class="app-list"></div>
+            </aside>
+
+            <section class="detail-stack">
+                <article class="glass panel">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">App Detail</p>
+                            <h2 id="appTitle">Select an app</h2>
+                        </div>
+                        <span id="appStatusBadge" class="badge">Idle</span>
+                    </div>
+                    <div id="appMeta" class="meta-grid"></div>
+                    <div id="controlButtons" class="control-grid"></div>
+                    <div id="actionOutput" class="output-box empty">No action has been run yet.</div>
+                </article>
+
+                <div class="split-grid">
+                    <article class="glass panel">
+                        <div class="section-head">
+                            <div>
+                                <p class="eyebrow">Logs</p>
+                                <h2>Recent Output</h2>
+                            </div>
+                            <div class="inline-actions">
+                                <button class="soft-button" data-lines="80" type="button">80</button>
+                                <button class="soft-button" data-lines="200" type="button">200</button>
+                                <button id="refreshLogsBtn" class="soft-button" type="button">Reload</button>
+                            </div>
+                        </div>
+                        <div class="log-tabs">
+                            <button id="stdoutTab" class="tab-button active" type="button">stdout</button>
+                            <button id="stderrTab" class="tab-button" type="button">stderr</button>
+                        </div>
+                        <pre id="logViewer" class="code-viewer">Choose an app to load logs.</pre>
+                    </article>
+
+                    <article class="glass panel">
+                        <div class="section-head">
+                            <div>
+                                <p class="eyebrow">File Manager</p>
+                                <h2 id="filePathLabel">No folder loaded</h2>
+                            </div>
+                            <div class="inline-actions">
+                                <button id="fileUpBtn" class="soft-button" type="button">Up</button>
+                                <button id="refreshFilesBtn" class="soft-button" type="button">Reload</button>
+                            </div>
+                        </div>
+                        <div id="fileList" class="file-list"></div>
+                        <div class="file-preview">
+                            <div class="preview-head">
+                                <div>
+                                    <p class="eyebrow">Preview</p>
+                                    <h3 id="previewTitle">No file selected</h3>
+                                </div>
+                                <button id="downloadFileBtn" class="soft-button hidden" type="button">Download</button>
+                            </div>
+                            <pre id="filePreview" class="code-viewer">Select a file to preview it here.</pre>
+                        </div>
+                    </article>
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <div id="busyOverlay" class="busy-overlay hidden">
+        <div class="glass busy-card">
+            <div class="spinner"></div>
+            <p id="busyText">Loading...</p>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+</body>
+</html>

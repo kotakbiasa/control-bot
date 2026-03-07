@@ -131,6 +131,8 @@ function register(bot, deps) {
         const settings = db.getSettings();
         const port = settings.webhookPort || 9876;
         const enabled = settings.webhookEnabled || false;
+        const { webhookServer } = deps;
+        const webhookBase = webhookServer.getPublicWebhookBase();
         const output = [
             `🔗 <b>Webhook Server</b>`,
             `<blockquote>`,
@@ -138,7 +140,7 @@ function register(bot, deps) {
             `<b>Port:</b> ${port}`,
             `</blockquote>`,
             "",
-            `URL Format: <code>POST http://YOUR_IP:${port}/webhook/APP_NAME?secret=SECRET</code>`,
+            `URL Format: <code>POST ${escapeHtml(webhookBase)}/webhook/APP_NAME?secret=SECRET</code>`,
             "",
             "Aktifkan webhook per app melalui menu Settings tiap app."
         ].join("\n");
@@ -154,10 +156,10 @@ function register(bot, deps) {
         const port = settings.webhookPort || 9876;
         await db.updateSettings({ webhookEnabled: newState, webhookPort: port });
         const { webhookServer } = deps;
-        if (newState) { webhookServer.start(port); } else { webhookServer.stop(); }
+        webhookServer.start(port);
         const output = newState
-            ? `✅ Webhook server <b>diaktifkan</b> di port ${port}`
-            : "🔴 Webhook server <b>dimatikan</b>";
+            ? `✅ Endpoint webhook <b>diaktifkan</b> di port ${port}`
+            : "🔴 Endpoint webhook <b>dimatikan</b>";
         setPanelState(chatId, { output, outputIsHtml: true }, db);
         await renderPanel(ctx, {}, deps);
     });
@@ -214,11 +216,12 @@ function register(bot, deps) {
             await db.upsertApp(appName, (existing) => ({ ...existing, webhookSecret: secret }));
             const settings = db.getSettings();
             const port = settings.webhookPort || 9876;
+            const webhookBase = webhookServer.getPublicWebhookBase() || `http://YOUR_IP:${port}`;
             output = [
                 `✅ Webhook untuk <b>${escapeHtml(appName)}</b> diaktifkan!`,
                 "",
                 `<b>URL:</b>`,
-                `<code>POST http://YOUR_IP:${port}/webhook/${escapeHtml(appName)}?secret=${escapeHtml(secret)}</code>`,
+                `<code>POST ${escapeHtml(webhookBase)}/webhook/${escapeHtml(appName)}?secret=${escapeHtml(secret)}</code>`,
                 "",
                 "Tambahkan URL ini di GitHub → Settings → Webhooks.",
                 "Content type: <code>application/json</code>"

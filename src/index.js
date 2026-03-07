@@ -107,6 +107,7 @@ const auditLog = new AuditLog({ DATA_DIR });
 const healthCheck = new HealthCheck({ db, bot, ADMIN_IDS });
 const deps = {
   db, bot, processManager, deployer, monitor, auditLog, healthCheck,
+  BOT_TOKEN,
   ADMIN_IDS, ROOT_DIR, DATA_DIR, DB_PATH, DEPLOYMENTS_DIR, LOGS_DIR,
   chatInputState, busyApps,
   isAdmin, withAppLock, withinDir
@@ -171,11 +172,31 @@ async function main() {
   await processManager.recoverState();
   processManager.recoverScheduledCommands();
   await bot.launch();
+  const webAppUrl = webhookServer.getWebAppUrl();
+  if (webAppUrl) {
+    try {
+      await bot.telegram.setChatMenuButton({
+        menu_button: {
+          type: "web_app",
+          text: "Mini App",
+          web_app: { url: webAppUrl }
+        }
+      });
+    } catch (err) {
+      console.error("[MiniApp] Gagal set menu button:", err.message || err);
+    }
+  }
   console.log("Telegram control bot running...");
 }
 
-process.once("SIGINT", () => { bot.stop("SIGINT"); });
-process.once("SIGTERM", () => { bot.stop("SIGTERM"); });
+process.once("SIGINT", () => {
+  bot.stop("SIGINT");
+  if (deps.webhookServer) deps.webhookServer.close();
+});
+process.once("SIGTERM", () => {
+  bot.stop("SIGTERM");
+  if (deps.webhookServer) deps.webhookServer.close();
+});
 
 main().catch((err) => {
   console.error("Fatal:", err);
