@@ -169,12 +169,46 @@ class WebhookServer {
             return;
         }
 
+        const headers = this._miniAppCacheHeaders(mimeTypeFor(safePath));
+
+        if (relativePath === "index.html") {
+            const assetVersion = this._getMiniAppAssetVersion();
+            const content = fs.readFileSync(safePath, "utf8")
+                .replace('href="/miniapp/styles.css"', `href="/miniapp/styles.css?v=${assetVersion}"`)
+                .replace('src="/miniapp/app.js"', `src="/miniapp/app.js?v=${assetVersion}"`);
+
+            res.writeHead(200, headers);
+            res.end(content);
+            return;
+        }
+
         const content = fs.readFileSync(safePath);
-        res.writeHead(200, {
-            "Content-Type": mimeTypeFor(safePath),
-            "Cache-Control": "no-store"
-        });
+        res.writeHead(200, headers);
         res.end(content);
+    }
+
+    _getMiniAppAssetVersion() {
+        const assetFiles = ["index.html", "styles.css", "app.js"];
+        let latestMtime = 0;
+
+        for (const fileName of assetFiles) {
+            const fullPath = path.join(this.miniAppDir, fileName);
+            if (!fs.existsSync(fullPath)) continue;
+            const stats = fs.statSync(fullPath);
+            latestMtime = Math.max(latestMtime, Math.floor(stats.mtimeMs));
+        }
+
+        return String(latestMtime || Date.now());
+    }
+
+    _miniAppCacheHeaders(contentType) {
+        return {
+            "Content-Type": contentType,
+            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Surrogate-Control": "no-store"
+        };
     }
 
     async _handleWebhookRequest(req, res, url) {
