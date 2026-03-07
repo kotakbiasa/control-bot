@@ -1,4 +1,4 @@
-const { parseCommandArgs, appNameValid, repoUrlValid, escapeHtml, nowIso } = require("../utils");
+const { parseCommandArgs, appNameValid, repoUrlValid, escapeHtml, nowIso, buildInlineKeyboard } = require("../utils");
 const { clip, appSummary, replyError } = require("../panel/helpers");
 const { renderPanel } = require("../panel/render");
 const { formatUptime } = require("../services/vpsInfo");
@@ -18,9 +18,7 @@ function register(bot, deps) {
                 `Total app terdaftar: ${Object.keys(db.getApps()).length}`
             ].join("\n"),
             {
-                reply_markup: {
-                    inline_keyboard: [[{ text: "Buka Panel", callback_data: "panel:home" }]]
-                }
+                reply_markup: buildInlineKeyboard([[{ text: "Buka Panel", callback_data: "panel:home", style: "primary" }]])
             }
         );
     });
@@ -73,9 +71,7 @@ function register(bot, deps) {
         }
         const lines = names.map((name) => appSummary(name, apps[name], formatUptime));
         await ctx.reply(lines.join("\n\n"), {
-            reply_markup: {
-                inline_keyboard: [[{ text: "Buka Panel", callback_data: "panel:home" }]]
-            }
+            reply_markup: buildInlineKeyboard([[{ text: "Buka Panel", callback_data: "panel:home", style: "primary" }]])
         });
     });
 

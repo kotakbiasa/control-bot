@@ -118,6 +118,74 @@ function withinDir(baseDir, target) {
   return !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
+const BUTTON_STYLES = new Set(["primary", "success", "danger"]);
+
+function normalizeButtonStyle(style) {
+  if (typeof style !== "string") return null;
+  const value = style.trim().toLowerCase();
+  return BUTTON_STYLES.has(value) ? value : null;
+}
+
+function buildInlineKeyboard(buttons = []) {
+  if (!Array.isArray(buttons)) {
+    return { inline_keyboard: [] };
+  }
+
+  const inline_keyboard = [];
+  for (const row of buttons) {
+    if (!Array.isArray(row)) continue;
+
+    const normalizedRow = [];
+    for (const btn of row) {
+      if (!btn || typeof btn !== "object") continue;
+
+      const normalizedButton = { ...btn };
+      if (typeof normalizedButton.text !== "string") {
+        normalizedButton.text = String(normalizedButton.text ?? "");
+      }
+
+      const style = normalizeButtonStyle(normalizedButton.style);
+      if (style) {
+        normalizedButton.style = style;
+      } else {
+        delete normalizedButton.style;
+      }
+
+      normalizedRow.push(normalizedButton);
+    }
+
+    if (normalizedRow.length > 0) {
+      inline_keyboard.push(normalizedRow);
+    }
+  }
+
+  return { inline_keyboard };
+}
+
+function appControlTemplateButtons(options = {}) {
+  const {
+    startCallback = "start",
+    statusCallback = "status",
+    restartCallback = "restart",
+    deleteCallback = "delete",
+    startText = "Start",
+    statusText = "Status",
+    restartText = "Restart",
+    deleteText = "Hapus"
+  } = options;
+
+  return [
+    [
+      { text: startText, callback_data: startCallback, style: "success" },
+      { text: statusText, callback_data: statusCallback, style: "primary" }
+    ],
+    [
+      { text: restartText, callback_data: restartCallback, style: "primary" },
+      { text: deleteText, callback_data: deleteCallback, style: "danger" }
+    ]
+  ];
+}
+
 module.exports = {
   getAugmentedEnv,
   ensureDir,
@@ -128,5 +196,8 @@ module.exports = {
   normalizeLines,
   escapeHtml,
   withinDir,
-  adminIdValid
+  adminIdValid,
+  normalizeButtonStyle,
+  buildInlineKeyboard,
+  appControlTemplateButtons
 };

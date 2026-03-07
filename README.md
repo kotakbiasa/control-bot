@@ -107,6 +107,81 @@ Mode terbaru: semua kontrol inline berjalan dalam **satu pesan** (message di-edi
 3. Klik aksi: `start`, `stop`, `restart`, `deploy`, `deploy + restart`, `update`, `logs`, `vars`, `remove`
 4. Klik `VPS Info` untuk lihat resource server real-time
 
+## Contoh Style Tombol
+
+Helper `buildInlineKeyboard(buttons)` menerima format `buttons` 2 dimensi dan optional `style`:
+- `primary`
+- `success`
+- `danger`
+
+Contoh penggunaan di handler:
+```js
+const { buildInlineKeyboard, appControlTemplateButtons } = require("../utils");
+```
+
+1. Satu tombol per style
+```js
+const buttons = [
+  [{ text: "Primary", callback_data: "btn_primary", style: "primary" }],
+  [{ text: "Success", callback_data: "btn_success", style: "success" }],
+  [{ text: "Danger", callback_data: "btn_danger", style: "danger" }]
+];
+```
+
+2. Semua style dalam satu baris
+```js
+const buttons = [[
+  { text: "Primary", callback_data: "p1", style: "primary" },
+  { text: "Success", callback_data: "s1", style: "success" },
+  { text: "Danger", callback_data: "d1", style: "danger" }
+]];
+```
+
+3. Campuran multi-row
+```js
+const buttons = [
+  [
+    { text: "Start", callback_data: "start", style: "primary" },
+    { text: "OK", callback_data: "ok", style: "success" }
+  ],
+  [
+    { text: "Hapus", callback_data: "delete", style: "danger" }
+  ]
+];
+```
+
+4. Tanpa style (default)
+```js
+const buttons = [[
+  { text: "Default", callback_data: "default_btn" }
+]];
+```
+
+Kirim ke Telegram:
+```js
+await ctx.reply("Pilih aksi:", {
+  reply_markup: buildInlineKeyboard(buttons)
+});
+```
+
+Template siap pakai `Start / Status / Restart / Hapus`:
+```js
+const buttons = appControlTemplateButtons({
+  startCallback: "panel:run:start",
+  statusCallback: "panel:run:status",
+  restartCallback: "panel:run:restart",
+  deleteCallback: "panel:run:remove",
+  startText: "▶️ Start",
+  statusText: "ℹ️ Status",
+  restartText: "🔁 Restart",
+  deleteText: "🗑️ Hapus App"
+});
+
+await ctx.reply("Menu kontrol app:", {
+  reply_markup: buildInlineKeyboard(buttons)
+});
+```
+
 ## Alur Pakai Cepat
 
 1. Tambah app:
