@@ -22,7 +22,7 @@
                 <p class="subtitle">A compact control surface for apps, logs, and files inside Telegram.</p>
             </div>
             <div class="topbar-actions">
-                <span id="userBadge" class="user-chip">Waiting for Telegram...</span>
+                <button id="userBadge" class="user-chip" type="button">Waiting for Telegram...</button>
                 <button id="refreshAllBtn" class="ghost-btn" type="button">Refresh</button>
             </div>
         </header>
@@ -30,6 +30,34 @@
         <section id="authNotice" class="notice-card surface hidden">
             <h2>Open this inside Telegram</h2>
             <p>This Mini App requires Telegram WebApp auth data. Launch it from the bot button or menu button inside Telegram.</p>
+        </section>
+
+        <section id="userHub" class="user-hub surface mobile-only">
+            <div class="user-hub-head">
+                <div class="user-hub-avatar" id="userHubAvatar">TG</div>
+                <div class="user-hub-identity">
+                    <p class="eyebrow">Account Center</p>
+                    <h2 id="userHubName">Waiting for Telegram...</h2>
+                    <p id="userHubMeta" class="subtitle">Telegram Mini App session</p>
+                </div>
+            </div>
+
+            <div class="user-accordion">
+                <details class="user-accordion-item" open>
+                    <summary>User</summary>
+                    <div id="userSectionContent" class="user-accordion-body"></div>
+                </details>
+
+                <details class="user-accordion-item">
+                    <summary>Settings</summary>
+                    <div id="settingsSectionContent" class="user-accordion-body"></div>
+                </details>
+
+                <details class="user-accordion-item">
+                    <summary>Info</summary>
+                    <div id="infoSectionContent" class="user-accordion-body"></div>
+                </details>
+            </div>
         </section>
 
         <section class="system-strip" aria-label="System summary">
@@ -231,15 +259,6 @@
                 <div id="vpsInfoGrid" class="info-grid compact-grid"></div>
             </section>
 
-            <section id="userPanel" class="aux-panel panel-screen surface mobile-only">
-                <div class="panel-head">
-                    <div>
-                        <p class="eyebrow">User</p>
-                        <h3>Telegram session info</h3>
-                    </div>
-                </div>
-                <div id="userInfoGrid" class="info-grid compact-grid"></div>
-            </section>
         </section>
     </main>
 

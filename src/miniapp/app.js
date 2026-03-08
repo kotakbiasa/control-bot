@@ -104,8 +104,13 @@
         els.vpsPanel = document.getElementById("vpsPanel");
         els.vpsCards = document.getElementById("vpsCards");
         els.vpsInfoGrid = document.getElementById("vpsInfoGrid");
-        els.userPanel = document.getElementById("userPanel");
-        els.userInfoGrid = document.getElementById("userInfoGrid");
+        els.userHub = document.getElementById("userHub");
+        els.userHubAvatar = document.getElementById("userHubAvatar");
+        els.userHubName = document.getElementById("userHubName");
+        els.userHubMeta = document.getElementById("userHubMeta");
+        els.userSectionContent = document.getElementById("userSectionContent");
+        els.settingsSectionContent = document.getElementById("settingsSectionContent");
+        els.infoSectionContent = document.getElementById("infoSectionContent");
         els.busyOverlay = document.getElementById("busyOverlay");
         els.busyText = document.getElementById("busyText");
         els.toast = document.getElementById("toast");
@@ -114,6 +119,10 @@
     function bindEvents() {
         els.refreshAllBtn.addEventListener("click", () => refreshAll());
         els.refreshSelectedBtn.addEventListener("click", () => refreshSelectedApp());
+        els.userBadge.addEventListener("click", () => {
+            if (!isMobileView()) return;
+            setCurrentView(state.currentView === "user" ? "app" : "user", { scroll: true, silent: true });
+        });
 
         els.appSearchInput.addEventListener("input", (event) => {
             state.appQuery = String(event.target.value || "").trim().toLowerCase();
@@ -274,7 +283,7 @@
 
         renderStatusPanel();
         renderVpsPanel();
-        renderUserPanel();
+        renderUserHub();
     }
 
     function renderApps() {
@@ -780,7 +789,7 @@
         els.detailShell.classList.toggle("is-active", showAppWorkspace);
         if (els.statusPanel) els.statusPanel.classList.toggle("is-active", mobile && state.currentView === "status");
         if (els.vpsPanel) els.vpsPanel.classList.toggle("is-active", mobile && state.currentView === "vps");
-        if (els.userPanel) els.userPanel.classList.toggle("is-active", mobile && state.currentView === "user");
+        if (els.userHub) els.userHub.classList.toggle("is-active", mobile && state.currentView === "user");
 
         els.contentTabs.forEach((button) => {
             button.classList.toggle("active", button.dataset.viewTarget === state.detailView);
@@ -794,6 +803,7 @@
         els.filesPanel.classList.toggle("is-active", state.detailView === "files");
 
         els.emptySelectionNotice.classList.toggle("hidden", !(mobile && state.currentView === "app" && !state.selectedApp));
+        renderUserHub();
         syncBackButton();
     }
 
@@ -887,19 +897,49 @@
         ].join("");
     }
 
-    function renderUserPanel() {
-        if (!els.userInfoGrid) return;
+    function renderUserHub() {
+        if (!els.userHubName) return;
 
         const user = state.user || {};
         const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+        const username = user.username ? `@${user.username}` : "-";
+        const role = user.id ? "Admin" : "Telegram auth required";
+        const accountName = fullName || (user.username ? `@${user.username}` : (user.id ? `ID ${user.id}` : "Telegram session"));
+        const accountMeta = user.id
+            ? [username !== "-" ? username : "", `ID ${user.id}`].filter(Boolean).join(" • ")
+            : "Open this Mini App from Telegram to load account data.";
+        const initials = accountName
+            .replace(/^@/, "")
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part.charAt(0).toUpperCase())
+            .join("") || "TG";
+        const activeScreen = state.currentView === "app"
+            ? `App / ${capitalizeWord(state.detailView)}`
+            : capitalizeWord(state.currentView);
+        const layoutMode = isMobileView() ? "Mobile" : "Desktop";
 
-        els.userInfoGrid.innerHTML = [
-            infoCard("Name", fullName || "-"),
-            infoCard("Username", user.username ? `@${user.username}` : "-"),
-            infoCard("Telegram ID", user.id ? String(user.id) : "-"),
-            infoCard("Role", user.id ? "Admin" : "Telegram auth required"),
-            infoCard("Mini App URL", state.webAppUrl || "-")
-        ].join("");
+        els.userHubAvatar.textContent = initials;
+        els.userHubName.textContent = accountName;
+        els.userHubMeta.textContent = accountMeta;
+        els.userSectionContent.innerHTML = kvList([
+            { label: "Name", value: fullName || "-" },
+            { label: "Username", value: username },
+            { label: "Telegram ID", value: user.id ? String(user.id) : "-" },
+            { label: "Role", value: role }
+        ]);
+        els.settingsSectionContent.innerHTML = kvList([
+            { label: "Layout", value: layoutMode },
+            { label: "Active Screen", value: activeScreen },
+            { label: "Selected App", value: state.selectedApp || "No app selected" },
+            { label: "Theme", value: tg && tg.colorScheme ? `Telegram ${capitalizeWord(tg.colorScheme)}` : "Telegram synced" }
+        ]);
+        els.infoSectionContent.innerHTML = kvList([
+            { label: "Mini App URL", value: state.webAppUrl || "-" },
+            { label: "Auth", value: user.id ? "Signed in via Telegram" : "Telegram auth required" },
+            { label: "Refresh", value: "Use Refresh in the header to reload app, VPS, and status data." }
+        ]);
     }
 
     function metricPanelCard(label, value, hint, tone) {
@@ -994,6 +1034,24 @@
 
     function actionButton(label, action, tone) {
         return `<button class="action-btn ${escapeAttr(tone || "")}" data-action="${escapeAttr(action)}" type="button">${escapeHtml(label)}</button>`;
+    }
+
+    function kvList(items) {
+        return `
+            <div class="kv-list">
+                ${items.map((item) => `
+                    <div class="kv-row">
+                        <span class="kv-row-label">${escapeHtml(item.label)}</span>
+                        <span class="kv-row-value">${escapeHtml(item.value || "-")}</span>
+                    </div>
+                `).join("")}
+            </div>
+        `;
+    }
+
+    function capitalizeWord(value) {
+        const text = String(value || "").trim();
+        return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "-";
     }
 
     function escapeHtml(value) {
