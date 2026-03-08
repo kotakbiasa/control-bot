@@ -186,7 +186,7 @@ Helper `buildInlineKeyboard(buttons)` menerima format `buttons` 2 dimensi dan op
 
 Contoh penggunaan di handler:
 ```js
-const { buildInlineKeyboard, appControlTemplateButtons } = require("../utils");
+const { buildInlineKeyboard, buildMiniAppButton, buildMiniAppKeyboard, appControlTemplateButtons } = require("../utils");
 ```
 
 1. Satu tombol per style
@@ -231,6 +231,24 @@ Kirim ke Telegram:
 ```js
 await ctx.reply("Pilih aksi:", {
   reply_markup: buildInlineKeyboard(buttons)
+});
+```
+
+Contoh tombol inline khusus Mini App:
+```js
+const webAppUrl = "https://bot.example.com/miniapp";
+
+await ctx.reply("Buka Mini App:", {
+  reply_markup: buildMiniAppKeyboard(webAppUrl, { text: "Buka Mini App" })
+});
+
+const rows = [[
+  { text: "Buka Panel", callback_data: "panel:home" },
+  buildMiniAppButton(webAppUrl, { text: "Mini App" })
+].filter(Boolean)];
+
+await ctx.reply("Pilih menu:", {
+  reply_markup: buildInlineKeyboard(rows)
 });
 ```
 

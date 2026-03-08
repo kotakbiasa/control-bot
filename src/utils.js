@@ -162,6 +162,30 @@ function buildInlineKeyboard(buttons = []) {
   return { inline_keyboard };
 }
 
+function buildMiniAppButton(webAppUrl, options = {}) {
+  if (typeof webAppUrl !== "string" || !webAppUrl.trim()) {
+    return null;
+  }
+
+  const { text = "Mini App", style } = options;
+  const button = {
+    text: typeof text === "string" ? text : String(text ?? "Mini App"),
+    web_app: { url: webAppUrl.trim() }
+  };
+
+  const normalizedStyle = normalizeButtonStyle(style);
+  if (normalizedStyle) {
+    button.style = normalizedStyle;
+  }
+
+  return button;
+}
+
+function buildMiniAppKeyboard(webAppUrl, options = {}) {
+  const button = buildMiniAppButton(webAppUrl, options);
+  return buildInlineKeyboard(button ? [[button]] : []);
+}
+
 function appControlTemplateButtons(options = {}) {
   const {
     startCallback = "start",
@@ -199,5 +223,7 @@ module.exports = {
   adminIdValid,
   normalizeButtonStyle,
   buildInlineKeyboard,
+  buildMiniAppButton,
+  buildMiniAppKeyboard,
   appControlTemplateButtons
 };

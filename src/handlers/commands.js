@@ -1,4 +1,4 @@
-const { parseCommandArgs, appNameValid, repoUrlValid, escapeHtml, nowIso, buildInlineKeyboard } = require("../utils");
+const { parseCommandArgs, appNameValid, repoUrlValid, escapeHtml, nowIso, buildInlineKeyboard, buildMiniAppButton, buildMiniAppKeyboard } = require("../utils");
 const { clip, appSummary, replyError } = require("../panel/helpers");
 const { renderPanel } = require("../panel/render");
 const { formatUptime } = require("../services/vpsInfo");
@@ -9,8 +9,9 @@ const { runShell } = require("../deployer");
 function buildEntryKeyboard(deps) {
     const rows = [[{ text: "Buka Panel", callback_data: "panel:home" }]];
     const webAppUrl = deps.webhookServer && deps.webhookServer.getWebAppUrl ? deps.webhookServer.getWebAppUrl() : null;
-    if (webAppUrl) {
-        rows[0].push({ text: "Mini App", web_app: { url: webAppUrl } });
+    const miniAppButton = buildMiniAppButton(webAppUrl, { text: "Mini App" });
+    if (miniAppButton) {
+        rows[0].push(miniAppButton);
     }
     return buildInlineKeyboard(rows);
 }
@@ -33,6 +34,7 @@ function register(bot, deps) {
     });
 
     bot.command("help", async (ctx) => {
+        const webAppUrl = deps.webhookServer && deps.webhookServer.getWebAppUrl ? deps.webhookServer.getWebAppUrl() : null;
         await ctx.reply(
             [
                 "Daftar command:",
@@ -55,7 +57,8 @@ function register(bot, deps) {
                 "",
                 "Catatan: Tambah app dan edit config (repo, branch, env, dll) sekarang bisa dilakukan langsung melalui tombol di /panel.",
                 "Semua data tersimpan di data/db.json"
-            ].join("\n")
+            ].join("\n"),
+            webAppUrl ? { reply_markup: buildMiniAppKeyboard(webAppUrl, { text: "Buka Mini App" }) } : undefined
         );
     });
 
@@ -70,7 +73,7 @@ function register(bot, deps) {
             return;
         }
         await ctx.reply("Buka Mini App untuk kontrol web dan file manager:", {
-            reply_markup: buildInlineKeyboard([[{ text: "Buka Mini App", web_app: { url: webAppUrl } }]])
+            reply_markup: buildMiniAppKeyboard(webAppUrl, { text: "Buka Mini App" })
         });
     });
 

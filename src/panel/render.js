@@ -1,4 +1,4 @@
-const { escapeHtml, buildInlineKeyboard, appControlTemplateButtons } = require("../utils");
+const { escapeHtml, buildInlineKeyboard, buildMiniAppButton, appControlTemplateButtons } = require("../utils");
 const { clip, getChatIdFromCtx, appRuntime, callbackAppName } = require("./helpers");
 const { syncPanelStateWithApps, setPanelState } = require("./state");
 const { formatUptime } = require("../services/vpsInfo");
@@ -173,10 +173,9 @@ function panelKeyboard(state, deps) {
         }
 
         const webAppUrl = deps.webhookServer && deps.webhookServer.getWebAppUrl ? deps.webhookServer.getWebAppUrl() : null;
-        if (webAppUrl) {
-            rows.push([
-                { text: "Mini App Web", web_app: { url: webAppUrl } }
-            ]);
+        const miniAppButton = buildMiniAppButton(webAppUrl, { text: "Mini App Web" });
+        if (miniAppButton) {
+            rows.push([miniAppButton]);
         }
 
         rows.push([
