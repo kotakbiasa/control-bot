@@ -2,7 +2,7 @@
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
     const MOBILE_MEDIA = "(max-width: 980px)";
     const PRIMARY_VIEWS = new Set(["app", "status", "vps", "user"]);
-    const DETAIL_VIEWS = new Set(["overview", "logs", "files"]);
+    const DETAIL_VIEWS = new Set(["overview", "settings", "logs", "files"]);
 
     const state = {
         initData: tg && tg.initData ? tg.initData : "",
@@ -78,13 +78,37 @@
         els.appStatusBadge = document.getElementById("appStatusBadge");
         els.summaryChips = document.getElementById("summaryChips");
         els.overviewPanel = document.getElementById("overviewPanel");
+        els.settingsPanel = document.getElementById("settingsPanel");
         els.logsPanel = document.getElementById("logsPanel");
         els.filesPanel = document.getElementById("filesPanel");
         els.appMeta = document.getElementById("appMeta");
+        els.overviewInsights = document.getElementById("overviewInsights");
+        els.runtimeProfileList = document.getElementById("runtimeProfileList");
         els.runtimeActions = document.getElementById("runtimeActions");
         els.deployActions = document.getElementById("deployActions");
         els.dangerActions = document.getElementById("dangerActions");
         els.actionOutput = document.getElementById("actionOutput");
+        els.settingsStatusRail = document.getElementById("settingsStatusRail");
+        els.commandForm = document.getElementById("commandForm");
+        els.commandInstallInput = document.getElementById("commandInstallInput");
+        els.commandBuildInput = document.getElementById("commandBuildInput");
+        els.commandStartInput = document.getElementById("commandStartInput");
+        els.resetCommandsBtn = document.getElementById("resetCommandsBtn");
+        els.pythonStateCard = document.getElementById("pythonStateCard");
+        els.togglePythonBtn = document.getElementById("togglePythonBtn");
+        els.rebuildPythonBtn = document.getElementById("rebuildPythonBtn");
+        els.dockerForm = document.getElementById("dockerForm");
+        els.dockerModeSwitch = document.getElementById("dockerModeSwitch");
+        els.dockerModeButtons = Array.from(document.querySelectorAll("[data-docker-mode]"));
+        els.dockerModeInput = document.getElementById("dockerModeInput");
+        els.dockerPortsInput = document.getElementById("dockerPortsInput");
+        els.dockerVolumesInput = document.getElementById("dockerVolumesInput");
+        els.dockerArgsInput = document.getElementById("dockerArgsInput");
+        els.resetDockerBtn = document.getElementById("resetDockerBtn");
+        els.envForm = document.getElementById("envForm");
+        els.envKeyInput = document.getElementById("envKeyInput");
+        els.envValueInput = document.getElementById("envValueInput");
+        els.envVarList = document.getElementById("envVarList");
         els.logLineButtons = Array.from(document.querySelectorAll(".log-line-btn"));
         els.refreshLogsBtn = document.getElementById("refreshLogsBtn");
         els.stdoutTab = document.getElementById("stdoutTab");
@@ -137,6 +161,15 @@
             });
         });
 
+        [els.runtimeActions, els.deployActions, els.dangerActions].forEach((container) => {
+            if (!container) return;
+            container.addEventListener("click", (event) => {
+                const button = event.target.closest("[data-action]");
+                if (!button) return;
+                runAction(button.dataset.action);
+            });
+        });
+
         els.contentTabs.forEach((button) => {
             button.addEventListener("click", () => {
                 handleDetailTabPress(button.dataset.viewTarget || "overview");
@@ -163,6 +196,20 @@
         els.fileUpBtn.addEventListener("click", () => goUp());
         els.refreshFilesBtn.addEventListener("click", () => refreshFiles());
         els.downloadFileBtn.addEventListener("click", () => downloadCurrentFile());
+        els.commandForm.addEventListener("submit", handleCommandSubmit);
+        els.resetCommandsBtn.addEventListener("click", () => populateCommandForm(state.appDetail));
+        els.togglePythonBtn.addEventListener("click", () => runAction("toggle_python_venv"));
+        els.rebuildPythonBtn.addEventListener("click", () => runAction("rebuild_python_venv"));
+        els.dockerModeButtons.forEach((button) => {
+            button.addEventListener("click", () => {
+                if (!ensureSelectedApp({ silent: true })) return;
+                renderDockerModeSwitch(button.dataset.dockerMode || "auto");
+            });
+        });
+        els.dockerForm.addEventListener("submit", handleDockerSubmit);
+        els.resetDockerBtn.addEventListener("click", () => populateDockerForm(state.appDetail));
+        els.envForm.addEventListener("submit", handleEnvSubmit);
+        els.envVarList.addEventListener("click", handleEnvListClick);
         window.addEventListener("resize", handleViewportChange);
     }
 
@@ -199,6 +246,7 @@
         const root = document.documentElement;
         const theme = tg.themeParams;
         const themeColor = document.querySelector('meta[name="theme-color"]');
+        const chromeColor = "#f1e2cf";
 
         if (theme.button_color) root.style.setProperty("--tg-button", theme.button_color);
         if (theme.button_text_color) root.style.setProperty("--tg-button-text", theme.button_text_color);
@@ -208,14 +256,14 @@
         if (theme.secondary_bg_color) root.style.setProperty("--tg-secondary-bg", theme.secondary_bg_color);
 
         try {
-            if (typeof tg.setHeaderColor === "function") tg.setHeaderColor(theme.bg_color || "#10131a");
-            if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor(theme.bg_color || "#10131a");
+            if (typeof tg.setHeaderColor === "function") tg.setHeaderColor(chromeColor);
+            if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor(chromeColor);
         } catch {
             // ignore theme bridge errors
         }
 
         if (themeColor) {
-            themeColor.setAttribute("content", theme.bg_color || "#10131a");
+            themeColor.setAttribute("content", chromeColor);
         }
     }
 
@@ -292,6 +340,12 @@
             if (state.appFilter === "pinned" && !app.pinned) return false;
             if (state.appQuery && !String(app.name || "").toLowerCase().includes(state.appQuery)) return false;
             return true;
+        }).sort((left, right) => {
+            const runningDelta = Number(right.status === "running") - Number(left.status === "running");
+            if (runningDelta) return runningDelta;
+            const pinnedDelta = Number(right.pinned) - Number(left.pinned);
+            if (pinnedDelta) return pinnedDelta;
+            return String(left.name || "").localeCompare(String(right.name || ""));
         });
 
         if (!filteredApps.length) {
@@ -303,12 +357,16 @@
             const activeClass = state.selectedApp === app.name ? "active" : "";
             const statusClass = app.status === "running" ? "running" : "stopped";
             const branch = app.branch || "main";
+            const runtimeMode = String(app.mode || "auto").toUpperCase();
             const pinnedTag = app.pinned ? '<span class="app-tag pinned">Pinned</span>' : "";
             return `
                 <button class="app-card ${activeClass}" data-app-name="${escapeAttr(app.name)}" type="button">
                     <div class="app-card-head">
                         <span class="status-inline"><span class="status-dot ${statusClass}"></span><span class="app-card-name">${escapeHtml(app.name)}</span></span>
-                        <span class="app-tag">${escapeHtml(branch)}</span>
+                        <div class="app-card-tags">
+                            <span class="app-tag">${escapeHtml(branch)}</span>
+                            <span class="app-tag subtle">${escapeHtml(runtimeMode)}</span>
+                        </div>
                     </div>
                     <div class="app-card-meta">
                         <span>${escapeHtml(app.status || "stopped")}</span>
@@ -369,36 +427,60 @@
         }
 
         const runtime = app.runtime || {};
+        const python = app.python || {};
+        const docker = app.docker || {};
+        const env = app.env || {};
+        const envEntries = Object.entries(env).sort((left, right) => left[0].localeCompare(right[0]));
         const usage = runtime.usage || {};
+        const isRunning = runtime.status === "running";
+        const runtimeMode = String(runtime.mode || "auto").toUpperCase();
+        const pythonState = python.detected
+            ? (python.venvEnabled === false ? "Detected, venv off" : `Detected${python.entrypoint ? ` | ${python.entrypoint}` : ""}`)
+            : "Not detected";
+        const dockerState = docker.detected
+            ? `${String(docker.enabled || "auto").toUpperCase()} | Dockerfile`
+            : `${String(docker.enabled || "auto").toUpperCase()} | Manual`;
+        const subtitle = [
+            app.repo || app.directory || "No repository configured.",
+            `Mode ${runtimeMode}`,
+            python.detected ? `Python ${python.entrypoint || python.venvDir || "detected"}` : "",
+            docker.detected ? "Dockerfile detected" : ""
+        ].filter(Boolean).join(" | ");
         const summaryItems = [
             {
                 label: "Status",
-                value: runtime.status || "stopped",
-                tone: runtime.status === "running" ? "success" : "danger"
+                value: isRunning ? "Running" : "Stopped",
+                tone: isRunning ? "success" : "danger"
             },
+            { label: "Runtime", value: runtimeMode, tone: runtimeMode === "DOCKER" ? "warm" : "accent" },
             { label: "Branch", value: app.branch || "-" },
-            { label: "PID", value: runtime.pid || "-" },
-            { label: "CPU", value: usage.cpu ? `${usage.cpu}%` : "-" },
-            { label: "Deploy", value: app.lastDeployAt || "-", layout: "wide" },
-            app.pinned ? { label: "Mode", value: "Pinned", tone: "warm", layout: "wide" } : null
+            { label: "Env", value: `${envEntries.length} vars`, tone: envEntries.length ? "accent" : "" },
+            { label: "Python", value: pythonState, layout: "wide" },
+            { label: "Docker", value: dockerState, layout: "wide" }
         ].filter(Boolean);
 
         els.appTitle.textContent = app.name || "Unnamed app";
-        els.appSubtitle.textContent = app.repo || app.directory || "No repository configured.";
-        els.appStatusBadge.textContent = runtime.status || "stopped";
-        els.appStatusBadge.className = `status-badge ${runtime.status === "running" ? "running" : "stopped"}`;
+        els.appSubtitle.textContent = subtitle;
+        els.appStatusBadge.textContent = isRunning ? "Running" : "Stopped";
+        els.appStatusBadge.className = `status-badge ${isRunning ? "running" : "stopped"}`;
         els.summaryChips.innerHTML = summaryItems.map((item) => summaryCard(item.label, item.value, item.tone, item.layout)).join("");
 
         els.appMeta.innerHTML = [
             infoCard("Repository", app.repo || "-"),
             infoCard("Directory", app.directory || "-"),
             infoCard("Branch", app.branch || "-"),
-            infoCard("PID", runtime.pid || "-"),
+            infoCard("Runtime Mode", runtimeMode),
+            infoCard("Status", isRunning ? "Running" : "Stopped"),
+            infoCard("PID", runtime.pid ? String(runtime.pid) : "-"),
+            infoCard("CPU", usage.cpu ? `${usage.cpu}%` : "-"),
+            infoCard("Memory", usage.rss || "-"),
             infoCard("Last Start", runtime.lastStartAt || "-"),
+            infoCard("Last Stop", runtime.lastStopAt || "-"),
             infoCard("Last Deploy", app.lastDeployAt || "-"),
-            infoCard("Install Command", app.installCommand || "-"),
-            infoCard("Build Command", app.buildCommand || "-"),
-            infoCard("Start Command", app.startCommand || "-")
+            infoCard("Active Command", usage.command || app.startCommand || "-"),
+            infoCard("Python", pythonState),
+            infoCard("Docker", dockerState),
+            infoCard("Env Vars", String(envEntries.length))
         ].join("");
 
         els.runtimeActions.innerHTML = [
@@ -411,30 +493,37 @@
             actionButton("Update", "update", "primary")
         ].join("");
         els.dangerActions.innerHTML = actionButton("Remove App", "remove", "danger");
-
-        [
-            ...els.runtimeActions.querySelectorAll("[data-action]"),
-            ...els.deployActions.querySelectorAll("[data-action]"),
-            ...els.dangerActions.querySelectorAll("[data-action]")
-        ].forEach((button) => {
-            button.addEventListener("click", () => runAction(button.dataset.action));
-        });
+        renderOverviewSnapshot(app, envEntries);
+        renderSettingsStatus(app, envEntries);
+        populateCommandForm(app);
+        populateDockerForm(app);
+        renderPythonState(app);
+        renderEnvList(envEntries);
+        setSettingsDisabled(false);
 
         renderNavigationState();
     }
 
     function renderEmptyState() {
         els.appTitle.textContent = "Select an app";
-        els.appSubtitle.textContent = "Choose an app from the list to inspect its state.";
+        els.appSubtitle.textContent = "Choose an app from the radar to inspect its runtime and configuration.";
         els.appStatusBadge.textContent = "Idle";
         els.appStatusBadge.className = "status-badge idle";
         els.summaryChips.innerHTML = "";
         els.appMeta.innerHTML = '<div class="empty-note">No app selected.</div>';
+        els.overviewInsights.innerHTML = '<div class="empty-note">Runtime signal will appear here after you select an app.</div>';
+        els.runtimeProfileList.innerHTML = '<div class="empty-note">Current runtime profile will appear here.</div>';
         els.runtimeActions.innerHTML = "";
         els.deployActions.innerHTML = "";
         els.dangerActions.innerHTML = "";
         els.actionOutput.textContent = "No action has been run yet.";
         els.actionOutput.classList.add("empty");
+        els.settingsStatusRail.innerHTML = '<span class="status-pill">Select an app to unlock runtime settings.</span>';
+        populateCommandForm(null);
+        populateDockerForm(null);
+        renderPythonState(null);
+        renderEnvList([]);
+        setSettingsDisabled(true);
         state.logs.stdout = "";
         state.logs.stderr = "";
         paintLogViewer();
@@ -447,29 +536,22 @@
         renderNavigationState();
     }
 
-    async function runAction(action) {
-        if (!state.selectedApp) {
-            showToast("Select an app first.", "error");
-            setCurrentView("app", { scroll: true, silent: true });
-            return;
-        }
+    async function runAction(action, options) {
+        if (!ensureSelectedApp()) return null;
 
-        let body = {};
-        if (action === "remove") {
-            if (!window.confirm(`Remove app "${state.selectedApp}"?`)) return;
+        const config = options || {};
+        let body = config.body ? { ...config.body } : {};
+
+        if (action === "remove" && !config.skipConfirm) {
+            if (!window.confirm(`Remove app "${state.selectedApp}"?`)) return null;
             body.deleteFiles = window.confirm("Delete deployment files and logs too?");
         }
 
         try {
-            setBusy(`Running ${action}...`);
-            const payload = await api(`/api/miniapp/apps/${encodeURIComponent(state.selectedApp)}/actions/${action}`, {
-                method: "POST",
-                body: JSON.stringify(body)
-            });
-
+            setBusy(config.busyText || `Running ${action}...`);
+            const payload = await postAction(action, body);
             els.actionOutput.textContent = [payload.message, payload.detail].filter(Boolean).join("\n\n") || "Action completed.";
             els.actionOutput.classList.remove("empty");
-            showToast(payload.message || "Action completed.", "success");
 
             if (action === "remove") {
                 clearSelectedState();
@@ -477,20 +559,345 @@
                 await refreshAllSilently();
                 setCurrentView("app", { scroll: false, silent: true });
                 setDetailView("overview", { scroll: false, silent: true });
-                return;
+                showToast(config.successMessage || payload.message || "App removed.", "success");
+                return payload;
             }
 
-            if (payload.app) {
-                state.appDetail = payload.app;
-                renderSelectedApp();
+            await refreshSelectedWorkspace({
+                refreshLogs: config.refreshLogs !== false,
+                refreshFiles: config.refreshFiles !== false
+            });
+            showToast(config.successMessage || payload.message || "Action completed.", "success");
+            return payload;
+        } catch (err) {
+            showToast(extractError(err), "error");
+            return null;
+        } finally {
+            clearBusy();
+        }
+    }
+
+    async function runBatchActions(steps, options) {
+        if (!ensureSelectedApp()) return;
+
+        const filteredSteps = Array.isArray(steps) ? steps.filter(Boolean) : [];
+        if (!filteredSteps.length) {
+            showToast((options && options.emptyMessage) || "No changes to save.", "error");
+            return;
+        }
+
+        try {
+            setBusy((options && options.busyText) || "Saving changes...");
+            const outputs = [];
+
+            for (const step of filteredSteps) {
+                const payload = await postAction(step.action, step.body || {});
+                outputs.push([payload.message, payload.detail].filter(Boolean).join("\n\n") || `${step.action} completed.`);
             }
 
-            await Promise.all([refreshAllSilently(), refreshLogs(), refreshFiles()]);
+            els.actionOutput.textContent = outputs.join("\n\n---\n\n");
+            els.actionOutput.classList.remove("empty");
+            await refreshSelectedWorkspace({
+                refreshLogs: options && options.refreshLogs !== false,
+                refreshFiles: options && options.refreshFiles !== false
+            });
+            showToast((options && options.successMessage) || "Changes applied.", "success");
         } catch (err) {
             showToast(extractError(err), "error");
         } finally {
             clearBusy();
         }
+    }
+
+    async function refreshSelectedWorkspace(options) {
+        if (!state.selectedApp) return;
+
+        const detail = await api(`/api/miniapp/apps/${encodeURIComponent(state.selectedApp)}`);
+        state.appDetail = detail.app || null;
+        renderSelectedApp();
+
+        const tasks = [refreshAllSilently()];
+        if (!options || options.refreshLogs !== false) tasks.push(refreshLogs());
+        if (!options || options.refreshFiles !== false) tasks.push(refreshFiles());
+        await Promise.all(tasks);
+    }
+
+    async function handleCommandSubmit(event) {
+        event.preventDefault();
+        if (!ensureSelectedApp()) return;
+
+        const app = state.appDetail || {};
+        const runtime = app.runtime || {};
+        const installValue = String(els.commandInstallInput.value || "").trim();
+        const buildValue = String(els.commandBuildInput.value || "").trim();
+        const startValue = String(els.commandStartInput.value || "").trim();
+
+        if (String(runtime.mode || "").toLowerCase() !== "docker" && !startValue) {
+            showToast("Start command tidak boleh kosong untuk runtime process.", "error");
+            return;
+        }
+
+        const steps = [
+            normalizeCommandValue(installValue) !== normalizeCommandValue(app.installCommand) ? { action: "set_cmd_install", body: { value: installValue } } : null,
+            normalizeCommandValue(buildValue) !== normalizeCommandValue(app.buildCommand) ? { action: "set_cmd_build", body: { value: buildValue } } : null,
+            normalizeCommandValue(startValue) !== normalizeCommandValue(app.startCommand) ? { action: "set_cmd_start", body: { value: startValue } } : null
+        ];
+
+        await runBatchActions(steps, {
+            busyText: "Saving command profile...",
+            successMessage: "Commands updated.",
+            refreshLogs: false,
+            refreshFiles: false,
+            emptyMessage: "Commands are already up to date."
+        });
+    }
+
+    async function handleDockerSubmit(event) {
+        event.preventDefault();
+        if (!ensureSelectedApp()) return;
+
+        const mode = String(els.dockerModeInput.value || "auto").trim().toLowerCase();
+        if (!["auto", "on", "off"].includes(mode)) {
+            showToast("Docker mode harus auto, on, atau off.", "error");
+            return;
+        }
+
+        await runBatchActions([
+            { action: "set_docker_mode", body: { value: mode } },
+            { action: "set_docker_ports", body: { value: String(els.dockerPortsInput.value || "").trim() || "off" } },
+            { action: "set_docker_volumes", body: { value: String(els.dockerVolumesInput.value || "").trim() || "off" } },
+            { action: "set_docker_args", body: { value: String(els.dockerArgsInput.value || "").trim() || "off" } }
+        ], {
+            busyText: "Applying docker runtime settings...",
+            successMessage: "Docker settings updated.",
+            refreshLogs: false,
+            refreshFiles: false
+        });
+    }
+
+    async function handleEnvSubmit(event) {
+        event.preventDefault();
+        if (!ensureSelectedApp()) return;
+
+        const key = String(els.envKeyInput.value || "").trim();
+        const value = String(els.envValueInput.value || "");
+
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+            showToast("Env key harus berupa huruf, angka, atau underscore dan tidak boleh diawali angka.", "error");
+            return;
+        }
+
+        const payload = await runAction("set_env_var", {
+            body: { key, value },
+            busyText: `Saving ${key}...`,
+            successMessage: `Env ${key} updated.`,
+            refreshLogs: false,
+            refreshFiles: false
+        });
+
+        if (payload) {
+            els.envKeyInput.value = "";
+            els.envValueInput.value = "";
+        }
+    }
+
+    async function handleEnvListClick(event) {
+        const button = event.target.closest("[data-env-fill], [data-env-delete]");
+        if (!button) return;
+        if (!ensureSelectedApp()) return;
+
+        const fillKey = button.dataset.envFill;
+        if (fillKey) {
+            const env = (state.appDetail && state.appDetail.env) || {};
+            els.envKeyInput.value = fillKey;
+            els.envValueInput.value = env[fillKey] == null ? "" : String(env[fillKey]);
+            setDetailView("settings", { scroll: true, silent: true });
+            return;
+        }
+
+        const deleteKey = button.dataset.envDelete;
+        if (!deleteKey) return;
+        if (!window.confirm(`Delete env "${deleteKey}"?`)) return;
+
+        await runAction("del_env_var", {
+            body: { key: deleteKey },
+            busyText: `Removing ${deleteKey}...`,
+            successMessage: `Env ${deleteKey} deleted.`,
+            refreshLogs: false,
+            refreshFiles: false
+        });
+    }
+
+    function populateCommandForm(app) {
+        els.commandInstallInput.value = app && app.installCommand ? app.installCommand : "";
+        els.commandBuildInput.value = app && app.buildCommand ? app.buildCommand : "";
+        els.commandStartInput.value = app && app.startCommand ? app.startCommand : "";
+    }
+
+    function populateDockerForm(app) {
+        const docker = app && app.docker ? app.docker : {};
+        renderDockerModeSwitch(String(docker.enabled || "auto").toLowerCase());
+        els.dockerPortsInput.value = Array.isArray(docker.ports) ? docker.ports.join("\n") : "";
+        els.dockerVolumesInput.value = Array.isArray(docker.volumes) ? docker.volumes.join("\n") : "";
+        els.dockerArgsInput.value = docker.extraArgs || "";
+    }
+
+    function renderDockerModeSwitch(mode) {
+        const nextMode = ["auto", "on", "off"].includes(String(mode || "").toLowerCase())
+            ? String(mode || "").toLowerCase()
+            : "auto";
+        els.dockerModeInput.value = nextMode;
+        els.dockerModeButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.dockerMode === nextMode);
+        });
+    }
+
+    function renderPythonState(app) {
+        const python = app && app.python ? app.python : {};
+        const hasApp = !!app;
+        if (!hasApp) {
+            els.pythonStateCard.innerHTML = '<div class="empty-note">Select an app to inspect Python runtime.</div>';
+            els.togglePythonBtn.textContent = "Toggle Python Venv";
+            els.togglePythonBtn.className = "action-btn primary";
+            els.rebuildPythonBtn.disabled = true;
+            return;
+        }
+        els.pythonStateCard.innerHTML = [
+            statusPill("Detected", python.detected ? "Yes" : "No", python.detected ? "success" : ""),
+            statusPill("Venv", python.venvEnabled === false ? "Disabled" : "Enabled", python.venvEnabled === false ? "" : "accent"),
+            statusPill("Entrypoint", python.entrypoint || "-", ""),
+            statusPill("Folder", python.venvDir || ".venv", "")
+        ].join("");
+        els.togglePythonBtn.textContent = python.venvEnabled === false ? "Enable Python Venv" : "Disable Python Venv";
+        els.togglePythonBtn.className = `action-btn ${python.venvEnabled === false ? "primary" : "success"}`;
+        els.rebuildPythonBtn.disabled = !python.detected;
+    }
+
+    function renderEnvList(envEntries) {
+        if (!envEntries.length) {
+            els.envVarList.innerHTML = '<div class="empty-note">No environment variables configured yet.</div>';
+            return;
+        }
+
+        els.envVarList.innerHTML = envEntries.map(([key, value]) => `
+            <article class="env-row">
+                <div class="env-row-main">
+                    <strong>${escapeHtml(key)}</strong>
+                    <code class="env-row-value">${escapeHtml(value == null ? "" : String(value))}</code>
+                </div>
+                <div class="env-row-actions">
+                    <button class="ghost-btn mini-btn" data-env-fill="${escapeAttr(key)}" type="button">Load</button>
+                    <button class="ghost-btn mini-btn danger-outline" data-env-delete="${escapeAttr(key)}" type="button">Delete</button>
+                </div>
+            </article>
+        `).join("");
+    }
+
+    function renderSettingsStatus(app, envEntries) {
+        const runtime = app.runtime || {};
+        const python = app.python || {};
+        const docker = app.docker || {};
+        const runtimeMode = String(runtime.mode || "auto").toUpperCase();
+        els.settingsStatusRail.innerHTML = [
+            statusPill("Runtime", runtimeMode, runtimeMode === "DOCKER" ? "warm" : "accent"),
+            statusPill("Python", python.detected ? (python.venvEnabled === false ? "Detected, venv off" : "Detected") : "Not detected", python.detected ? "success" : ""),
+            statusPill("Dockerfile", docker.detected ? "Detected" : "Not detected", docker.detected ? "warm" : ""),
+            statusPill("Env", `${envEntries.length} vars`, envEntries.length ? "accent" : "")
+        ].join("");
+    }
+
+    function renderOverviewSnapshot(app, envEntries) {
+        const runtime = app.runtime || {};
+        const python = app.python || {};
+        const docker = app.docker || {};
+        const usage = runtime.usage || {};
+        const runtimeMode = String(runtime.mode || "auto").toUpperCase();
+
+        els.overviewInsights.innerHTML = [
+            insightCard(
+                "Execution Path",
+                runtimeMode === "DOCKER" ? "Container runtime" : "Managed process",
+                runtimeMode === "DOCKER" ? (docker.containerName || docker.imageTag || "Docker lifecycle") : (usage.command || "Managed by bot"),
+                runtimeMode === "DOCKER" ? "warm" : "accent"
+            ),
+            insightCard(
+                "Deploy Signal",
+                app.lastDeployAt || "No deploy yet",
+                app.branch ? `Branch ${app.branch}` : "No branch configured",
+                "success"
+            ),
+            insightCard(
+                "Resource Pulse",
+                usage.cpu ? `${usage.cpu}% CPU` : "CPU n/a",
+                usage.rss || (runtime.pid ? `PID ${runtime.pid}` : "No active process"),
+                runtime.status === "running" ? "success" : ""
+            ),
+            insightCard(
+                "Config Surface",
+                `${envEntries.length} env vars`,
+                python.detected ? `Python ${python.entrypoint || python.venvDir || "detected"}` : (docker.detected ? "Dockerfile detected" : "Manual runtime"),
+                "warm"
+            )
+        ].join("");
+
+        els.runtimeProfileList.innerHTML = [
+            profileRow("Install", app.installCommand || "-"),
+            profileRow("Build", app.buildCommand || "-"),
+            profileRow("Start", app.startCommand || "-"),
+            profileRow("Ports", listToDisplay(docker.ports)),
+            profileRow("Volumes", listToDisplay(docker.volumes)),
+            profileRow("Extra Args", docker.extraArgs || "-"),
+            profileRow("Uptime", usage.etime || "-"),
+            profileRow("Last Exit", runtime.lastExitCode == null ? "-" : String(runtime.lastExitCode))
+        ].join("");
+    }
+
+    function setSettingsDisabled(disabled) {
+        [
+            els.commandInstallInput,
+            els.commandBuildInput,
+            els.commandStartInput,
+            els.resetCommandsBtn,
+            els.togglePythonBtn,
+            els.rebuildPythonBtn,
+            els.dockerPortsInput,
+            els.dockerVolumesInput,
+            els.dockerArgsInput,
+            els.resetDockerBtn,
+            els.envKeyInput,
+            els.envValueInput
+        ].forEach((element) => {
+            if (element) element.disabled = disabled;
+        });
+        els.dockerModeButtons.forEach((button) => {
+            button.disabled = disabled;
+        });
+        els.commandForm.querySelector('button[type="submit"]').disabled = disabled;
+        els.dockerForm.querySelector('button[type="submit"]').disabled = disabled;
+        els.envForm.querySelector('button[type="submit"]').disabled = disabled;
+    }
+
+    function ensureSelectedApp(options) {
+        if (state.selectedApp) return true;
+        if (!options || !options.silent) showToast("Select an app first.", "error");
+        setCurrentView("app", { scroll: true, silent: true });
+        setDetailView("overview", { scroll: false, silent: true });
+        return false;
+    }
+
+    async function postAction(action, body) {
+        return api(`/api/miniapp/apps/${encodeURIComponent(state.selectedApp)}/actions/${action}`, {
+            method: "POST",
+            body: JSON.stringify(body || {})
+        });
+    }
+
+    function normalizeCommandValue(value) {
+        return String(value || "").trim();
+    }
+
+    function listToDisplay(value) {
+        return Array.isArray(value) && value.length ? value.join(", ") : "-";
     }
 
     async function refreshAllSilently() {
@@ -799,6 +1206,7 @@
         });
 
         els.overviewPanel.classList.toggle("is-active", state.detailView === "overview");
+        els.settingsPanel.classList.toggle("is-active", state.detailView === "settings");
         els.logsPanel.classList.toggle("is-active", state.detailView === "logs");
         els.filesPanel.classList.toggle("is-active", state.detailView === "files");
 
@@ -906,7 +1314,7 @@
         const role = user.id ? "Admin" : "Telegram auth required";
         const accountName = fullName || (user.username ? `@${user.username}` : (user.id ? `ID ${user.id}` : "Telegram session"));
         const accountMeta = user.id
-            ? [username !== "-" ? username : "", `ID ${user.id}`].filter(Boolean).join(" • ")
+            ? [username !== "-" ? username : "", `ID ${user.id}`].filter(Boolean).join(" | ")
             : "Open this Mini App from Telegram to load account data.";
         const initials = accountName
             .replace(/^@/, "")
@@ -950,6 +1358,36 @@
                 <strong class="aux-card-value">${escapeHtml(value || "-")}</strong>
                 <small class="aux-card-hint">${escapeHtml(hint || "-")}</small>
             </article>
+        `;
+    }
+
+    function insightCard(label, value, hint, tone) {
+        const classes = tone ? ` ${escapeAttr(tone)}` : "";
+        return `
+            <article class="spotlight-card${classes}">
+                <span class="spotlight-label">${escapeHtml(label)}</span>
+                <strong class="spotlight-value">${escapeHtml(value || "-")}</strong>
+                <small class="spotlight-hint">${escapeHtml(hint || "-")}</small>
+            </article>
+        `;
+    }
+
+    function profileRow(label, value) {
+        return `
+            <div class="profile-row">
+                <span class="profile-label">${escapeHtml(label)}</span>
+                <span class="profile-value">${escapeHtml(value || "-")}</span>
+            </div>
+        `;
+    }
+
+    function statusPill(label, value, tone) {
+        const classes = tone ? ` ${escapeAttr(tone)}` : "";
+        return `
+            <div class="status-pill${classes}">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(value || "-")}</strong>
+            </div>
         `;
     }
 

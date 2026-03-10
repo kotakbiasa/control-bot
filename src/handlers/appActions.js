@@ -294,7 +294,7 @@ function register(bot, deps) {
                     let output = "";
                     await withAppLock(appName, async () => {
                         const summary = await deployer.deploy(appName);
-                        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+                        const detail = [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n");
                         output = [`Deploy "${appName}" selesai.`, detail ? clip(detail, 2200) : ""].filter(Boolean).join("\n\n");
                     });
                     await renderPanel(ctx, { output, outputIsHtml: false, confirmRemove: false }, deps);
@@ -306,9 +306,15 @@ function register(bot, deps) {
                     let output = "";
                     await withAppLock(appName, async () => {
                         const summary = await deployer.deploy(appName);
-                        const pid = await processManager.restart(appName);
-                        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
-                        output = [`Deploy + restart "${appName}" selesai. PID baru: ${pid}`, detail ? clip(detail, 2200) : ""].filter(Boolean).join("\n\n");
+                        let header = `Deploy + restart "${appName}" selesai.`;
+                        if (summary.mode === "docker") {
+                            header = `Deploy "${appName}" selesai. Docker container sudah di-recreate.`;
+                        } else {
+                            const pid = await processManager.restart(appName);
+                            header = `Deploy + restart "${appName}" selesai. PID baru: ${pid}`;
+                        }
+                        const detail = [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n");
+                        output = [header, detail ? clip(detail, 2200) : ""].filter(Boolean).join("\n\n");
                     });
                     await renderPanel(ctx, { output, outputIsHtml: false, confirmRemove: false }, deps);
                     return;
@@ -322,11 +328,16 @@ function register(bot, deps) {
                         if (!app) { throw new Error(`App "${appName}" tidak ditemukan.`); }
                         const runtime = app.runtime || {};
                         const wasRunning = runtime.status === "running" && runtime.pid;
-                        if (wasRunning) { await processManager.stop(appName); }
+                        if (wasRunning && runtime.mode !== "docker") { await processManager.stop(appName); }
                         const summary = await deployer.deploy(appName, { updateOnly: true });
                         let runMessage = "App tetap dalam kondisi stop (status awal tidak running).";
-                        if (wasRunning) { const pid = await processManager.start(appName); runMessage = `App dijalankan kembali. PID: ${pid}`; }
-                        const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+                        if (summary.mode === "docker") {
+                            runMessage = "Docker container di-recreate dan dijalankan kembali.";
+                        } else if (wasRunning) {
+                            const pid = await processManager.start(appName);
+                            runMessage = `App dijalankan kembali. PID: ${pid}`;
+                        }
+                        const detail = [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n");
                         output = [`Update "${appName}" selesai.`, runMessage, detail ? clip(detail, 2000) : ""].filter(Boolean).join("\n\n");
                     });
                     await renderPanel(ctx, { output, outputIsHtml: false, confirmRemove: false }, deps);

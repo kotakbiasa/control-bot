@@ -10,6 +10,8 @@ Semua konfigurasi disimpan lokal di file JSON (`data/db.json`).
 - Telegram Mini App untuk kontrol via web + file manager
 - Monitor spec & usage VPS (CPU, RAM, disk, uptime, usage app running)
 - Deploy dari Git repo (clone/pull)
+- Auto-detect runtime app: process biasa atau Dockerfile (`docker build` + `docker run`)
+- Support app Python dengan virtual environment per app (`.venv`) untuk mode process
 - Start, stop, restart proses app
 - Update app (pull + install + build + restart jika sebelumnya running)
 - Cek status dan PID proses
@@ -96,6 +98,11 @@ Data penting tetap persisten lewat volume:
 
 Catatan:
 - App yang kamu `deploy/start` dari bot akan dijalankan di dalam container ini.
+- Untuk dukungan app Dockerfile dari dalam container bot, mount juga `docker.sock` host:
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+```
 - Port `9876` diekspos untuk Mini App web dan webhook internal bot.
 
 ### Script Install + Jalankan Otomatis
@@ -148,6 +155,10 @@ Mode terbaru: semua kontrol inline berjalan dalam **satu pesan** (message di-edi
 3. Klik aksi: `start`, `stop`, `restart`, `deploy`, `deploy + restart`, `update`, `logs`, `vars`, `remove`
 4. Klik `VPS Info` untuk lihat resource server real-time
 
+Di menu **Settings app**, sekarang tersedia juga:
+- Toggle `Python Venv` + tombol `Rebuild Python Venv`
+- Pengaturan Docker runtime per app: `Docker Mode (auto/on/off)`, `Docker Ports`, `Docker Volumes`, `Docker Extra Args`
+
 ## Mini App Web
 
 Mini App tersedia di path:
@@ -170,6 +181,7 @@ WEB_PORT=9876
 Fitur Mini App:
 - Dashboard daftar app dan status runtime
 - Kontrol `start`, `stop`, `restart`, `deploy`, `update`, `remove`
+- Konfigurasi app langsung dari web: command install/build/start, env var, Python venv, dan Docker mode/ports/volumes/args
 - Preview logs stdout/stderr
 - File manager browse folder, preview file teks, dan download file
 

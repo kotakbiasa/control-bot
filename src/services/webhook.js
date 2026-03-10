@@ -3,10 +3,11 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { escapeHtml, normalizeLines, withinDir } = require("../utils");
+const { escapeHtml, normalizeLines, withinDir, nowIso } = require("../utils");
 const { removeAppInternal } = require("./appService");
 const { formatBytes, formatUptime, getDiskUsage, getPidUsage } = require("./vpsInfo");
 const { clip } = require("../panel/helpers");
+const { parseListInput } = require("./runtimeMode");
 
 function normalizePort(value, fallback = 9876) {
     const parsed = Number.parseInt(String(value || ""), 10);
@@ -273,18 +274,20 @@ class WebhookServer {
                 const runtime = latestApp?.runtime || {};
                 const wasRunning = runtime.status === "running" && runtime.pid;
 
-                if (wasRunning) {
+                if (wasRunning && runtime.mode !== "docker") {
                     await this.processManager.stop(appName);
                 }
 
                 const summary = await this.deployer.deploy(appName, { updateOnly: true });
                 let runMsg = "";
-                if (wasRunning) {
+                if (summary.mode === "docker") {
+                    runMsg = "\nDocker container recreated.";
+                } else if (wasRunning) {
                     const pid = await this.processManager.start(appName);
                     runMsg = `\nApp restarted. PID: ${pid}`;
                 }
 
-                const detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n");
+                const detail = [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n");
                 await this._notifyAdmins([
                     `✅ <b>Webhook Deploy Selesai</b>`,
                     `App: <b>${escapeHtml(appName)}</b>${runMsg}`,
@@ -481,6 +484,8 @@ class WebhookServer {
 
     async _buildAppDetail(appName, app) {
         const runtime = app.runtime || {};
+        const python = app.python || {};
+        const docker = app.docker || {};
         const logs = this.processManager.readLogs(appName, 80);
         const currentStatus = runtime.status || "stopped";
         const pidUsage = runtime.pid ? await getPidUsage(runtime.pid) : null;
@@ -496,6 +501,7 @@ class WebhookServer {
             tags: Array.isArray(app.tags) ? app.tags : [],
             lastDeployAt: app.lastDeployAt || null,
             runtime: {
+                mode: runtime.mode || "auto",
                 status: currentStatus,
                 pid: runtime.pid || null,
                 lastStartAt: runtime.lastStartAt || null,
@@ -504,6 +510,22 @@ class WebhookServer {
                 lastSignal: runtime.lastSignal || null,
                 usage: pidUsage
             },
+            python: {
+                detected: !!python.detected,
+                venvEnabled: python.venvEnabled !== false,
+                venvDir: python.venvDir || ".venv",
+                entrypoint: python.entrypoint || null
+            },
+            docker: {
+                detected: !!docker.detected,
+                enabled: docker.enabled || "auto",
+                imageTag: docker.imageTag || "",
+                containerName: docker.containerName || "",
+                ports: Array.isArray(docker.ports) ? docker.ports : [],
+                volumes: Array.isArray(docker.volumes) ? docker.volumes : [],
+                extraArgs: docker.extraArgs || ""
+            },
+            env: app.env || {},
             logs: {
                 stdout: clip(logs.out || "", 2200),
                 stderr: clip(logs.err || "", 2200)
@@ -540,16 +562,19 @@ class WebhookServer {
 
     _serializeAppSummary(name, app) {
         const runtime = app.runtime || {};
+        const docker = app.docker || {};
         return {
             name,
             status: runtime.status || "stopped",
             pid: runtime.pid || null,
+            mode: runtime.mode || "auto",
             branch: app.branch || "",
             repo: app.repo || "",
             directory: app.directory || "",
             pinned: !!app.pinned,
             tags: Array.isArray(app.tags) ? app.tags : [],
-            lastDeployAt: app.lastDeployAt || null
+            lastDeployAt: app.lastDeployAt || null,
+            dockerEnabled: docker.enabled || "auto"
         };
     }
 
@@ -583,24 +608,26 @@ class WebhookServer {
             await this.withAppLock(appName, async () => {
                 const summary = await this.deployer.deploy(appName);
                 message = `Deploy "${appName}" selesai.`;
-                detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+                detail = [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n");
             });
         } else if (action === "update") {
             await this.withAppLock(appName, async () => {
                 const latestApp = this.db.getApp(appName);
                 const runtime = latestApp.runtime || {};
                 const wasRunning = runtime.status === "running" && runtime.pid;
-                if (wasRunning) {
+                if (wasRunning && runtime.mode !== "docker") {
                     await this.processManager.stop(appName);
                 }
                 const summary = await this.deployer.deploy(appName, { updateOnly: true });
-                if (wasRunning) {
+                if (summary.mode === "docker") {
+                    message = `Update "${appName}" selesai. Docker container dijalankan ulang.`;
+                } else if (wasRunning) {
                     const pid = await this.processManager.start(appName);
                     message = `Update "${appName}" selesai. App dijalankan kembali dengan PID ${pid}.`;
                 } else {
                     message = `Update "${appName}" selesai. App tetap stop karena sebelumnya tidak running.`;
                 }
-                detail = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+                detail = [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n");
             });
         } else if (action === "remove") {
             const deleteFiles = !!body.deleteFiles;
@@ -614,6 +641,129 @@ class WebhookServer {
                 });
             });
             message = `App "${appName}" dihapus.${deleteFiles ? " File deployment dan log ikut dihapus." : ""}`;
+        } else if (action === "toggle_python_venv") {
+            await this.withAppLock(appName, async () => {
+                await this.db.upsertApp(appName, (existing) => {
+                    const python = existing.python || {};
+                    const nextEnabled = python.venvEnabled === false;
+                    return {
+                        ...existing,
+                        python: {
+                            ...python,
+                            venvEnabled: nextEnabled
+                        },
+                        updatedAt: nowIso()
+                    };
+                });
+                await this.deployer.syncRuntimeProfile(appName);
+            });
+            const latest = this.db.getApp(appName) || {};
+            const enabled = ((latest.python || {}).venvEnabled) !== false;
+            message = `Python venv ${enabled ? "diaktifkan" : "dimatikan"} untuk "${appName}".`;
+        } else if (action === "rebuild_python_venv") {
+            await this.withAppLock(appName, async () => {
+                detail = await this.deployer.rebuildPythonVenv(appName);
+            });
+            message = `Rebuild Python venv selesai untuk "${appName}".`;
+        } else if (action === "set_docker_mode") {
+            const value = String(body.value || "").trim().toLowerCase();
+            if (!["auto", "on", "off"].includes(value)) {
+                throw new Error('Nilai docker mode harus "auto", "on", atau "off".');
+            }
+            await this.withAppLock(appName, async () => {
+                await this.db.upsertApp(appName, (existing) => ({
+                    ...existing,
+                    docker: {
+                        ...(existing.docker || {}),
+                        enabled: value
+                    },
+                    updatedAt: nowIso()
+                }));
+                await this.deployer.syncRuntimeProfile(appName);
+            });
+            message = `Docker mode untuk "${appName}" diubah ke "${value}".`;
+        } else if (action === "set_docker_ports") {
+            const raw = String(body.value || "").trim();
+            const ports = !raw || raw.toLowerCase() === "off" ? [] : parseListInput(raw);
+            await this.db.upsertApp(appName, (existing) => ({
+                ...existing,
+                docker: {
+                    ...(existing.docker || {}),
+                    ports
+                },
+                updatedAt: nowIso()
+            }));
+            message = `Docker ports untuk "${appName}" diperbarui.`;
+        } else if (action === "set_docker_volumes") {
+            const raw = String(body.value || "").trim();
+            const volumes = !raw || raw.toLowerCase() === "off" ? [] : parseListInput(raw);
+            await this.db.upsertApp(appName, (existing) => ({
+                ...existing,
+                docker: {
+                    ...(existing.docker || {}),
+                    volumes
+                },
+                updatedAt: nowIso()
+            }));
+            message = `Docker volumes untuk "${appName}" diperbarui.`;
+        } else if (action === "set_docker_args") {
+            const raw = String(body.value || "").trim();
+            const extraArgs = raw.toLowerCase() === "off" ? "" : raw;
+            await this.db.upsertApp(appName, (existing) => ({
+                ...existing,
+                docker: {
+                    ...(existing.docker || {}),
+                    extraArgs
+                },
+                updatedAt: nowIso()
+            }));
+            message = `Docker extra args untuk "${appName}" diperbarui.`;
+        } else if (action === "set_cmd_install" || action === "set_cmd_build" || action === "set_cmd_start") {
+            const value = String(body.value || "").trim();
+            const key = action === "set_cmd_install"
+                ? "installCommand"
+                : action === "set_cmd_build"
+                    ? "buildCommand"
+                    : "startCommand";
+            if (key === "startCommand" && !value) {
+                throw new Error("Start command tidak boleh kosong.");
+            }
+            await this.db.upsertApp(appName, (existing) => ({
+                ...existing,
+                [key]: value,
+                updatedAt: nowIso()
+            }));
+            message = `${key} untuk "${appName}" diperbarui.`;
+        } else if (action === "set_env_var") {
+            const key = String(body.key || "").trim();
+            const value = String(body.value || "");
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+                throw new Error("Format key env tidak valid.");
+            }
+            await this.db.upsertApp(appName, (existing) => ({
+                ...existing,
+                env: {
+                    ...(existing.env || {}),
+                    [key]: value
+                },
+                updatedAt: nowIso()
+            }));
+            message = `Env var ${key} untuk "${appName}" diperbarui.`;
+        } else if (action === "del_env_var") {
+            const key = String(body.key || "").trim();
+            if (!key) {
+                throw new Error("Key env harus diisi.");
+            }
+            await this.db.upsertApp(appName, (existing) => {
+                const env = { ...(existing.env || {}) };
+                delete env[key];
+                return {
+                    ...existing,
+                    env,
+                    updatedAt: nowIso()
+                };
+            });
+            message = `Env var ${key} untuk "${appName}" dihapus.`;
         } else {
             throw new Error(`Aksi "${action}" tidak didukung.`);
         }

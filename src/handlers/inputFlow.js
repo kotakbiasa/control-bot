@@ -3,9 +3,10 @@ const { getChatIdFromCtx, answerCallback, replyError } = require("../panel/helpe
 const { setPanelState, selectedAppFromState } = require("../panel/state");
 const { renderPanel } = require("../panel/render");
 const { makeNewApp } = require("../services/appService");
+const { parseListInput } = require("../services/runtimeMode");
 
 function register(bot, deps) {
-    const { db, processManager, chatInputState, isAdmin, DEPLOYMENTS_DIR } = deps;
+    const { db, processManager, deployer, chatInputState, isAdmin, DEPLOYMENTS_DIR } = deps;
 
     bot.action("panel:addapp:start", async (ctx) => {
         await answerCallback(ctx);
@@ -16,7 +17,7 @@ function register(bot, deps) {
         await ctx.reply(text, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]] } });
     });
 
-    bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv|cron|addsched|listsched|delsched|healthcheck|reslimit|mutealert)$/, async (ctx) => {
+    bot.action(/^panel:edit:(repo|branch|cmd:install|cmd:build|cmd:start|setvar|delvar|importenv|cron|addsched|listsched|delsched|healthcheck|reslimit|mutealert|pythonvenv|pythonrebuild|dockermode|dockerports|dockervolumes|dockerargs)$/, async (ctx) => {
         const action = ctx.match[1];
         const chatId = getChatIdFromCtx(ctx);
         if (!chatId) return;
@@ -84,6 +85,70 @@ function register(bot, deps) {
             const cpu = (app && app.maxCpuPercent) || "none";
             promptText = `📊 <b>Resource Limit</b> untuk <b>${escapeHtml(appName)}</b>\n\nSaat ini:\n• Max RAM: <code>${ram}</code> MB\n• Max CPU: <code>${cpu}</code>%\n\nBalas dengan format:\n<code>RAM_MB CPU_PERCENT</code>\nContoh: <code>256 80</code> → Max 256MB RAM, 80% CPU\nAtau ketik <b>off</b> untuk mematikan.`;
         }
+        else if (action === "pythonvenv") {
+            const app = db.getApp(appName) || {};
+            const python = app.python || {};
+            const nextEnabled = python.venvEnabled === false;
+            await db.upsertApp(appName, (existing) => ({
+                ...existing,
+                python: {
+                    ...(existing.python || {}),
+                    venvEnabled: nextEnabled
+                },
+                updatedAt: nowIso()
+            }));
+            try { await deployer.syncRuntimeProfile(appName); } catch { }
+            const output = nextEnabled
+                ? `✅ Python venv untuk <b>${escapeHtml(appName)}</b> diaktifkan.`
+                : `✅ Python venv untuk <b>${escapeHtml(appName)}</b> dimatikan.`;
+            setPanelState(chatId, { output, outputIsHtml: true }, db);
+            await renderPanel(ctx, {}, deps);
+            return;
+        }
+        else if (action === "pythonrebuild") {
+            try {
+                const result = await deployer.rebuildPythonVenv(appName);
+                const output = [
+                    `✅ Rebuild Python venv selesai untuk <b>${escapeHtml(appName)}</b>.`,
+                    "",
+                    `<pre>${escapeHtml(result.slice(-1600))}</pre>`
+                ].join("\n");
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                setPanelState(chatId, { output: `❌ Rebuild Python venv gagal: <code>${escapeHtml(msg)}</code>`, outputIsHtml: true }, db);
+            }
+            await renderPanel(ctx, {}, deps);
+            return;
+        }
+        else if (action === "dockermode") {
+            nextStep = "EDIT_DOCKER_MODE";
+            const app = db.getApp(appName) || {};
+            const docker = app.docker || {};
+            promptText = `🐳 <b>Docker Mode</b> untuk <b>${escapeHtml(appName)}</b>\n\nMode saat ini: <code>${escapeHtml(docker.enabled || "auto")}</code>\n\nPilih mode di bawah atau balas teks <b>auto</b>, <b>on</b>, atau <b>off</b>.`;
+            customKeyboard = [
+                [{ text: "AUTO", callback_data: "panel:dockermode:auto" }, { text: "ON", callback_data: "panel:dockermode:on" }, { text: "OFF", callback_data: "panel:dockermode:off" }],
+                [{ text: "Cancel ❌", callback_data: "panel:cancel_input" }]
+            ];
+        }
+        else if (action === "dockerports") {
+            nextStep = "EDIT_DOCKER_PORTS";
+            const app = db.getApp(appName) || {};
+            const ports = ((app.docker || {}).ports || []).join("\n") || "(kosong)";
+            promptText = `🐳 <b>Docker Ports</b> untuk <b>${escapeHtml(appName)}</b>\n\nSaat ini:\n<pre>${escapeHtml(ports)}</pre>\nBalas dengan daftar port mapping (pisahkan baris/komma), contoh:\n<pre>8080:8080\n127.0.0.1:3000:3000</pre>\nKetik <b>off</b> untuk kosongkan.`;
+        }
+        else if (action === "dockervolumes") {
+            nextStep = "EDIT_DOCKER_VOLUMES";
+            const app = db.getApp(appName) || {};
+            const volumes = ((app.docker || {}).volumes || []).join("\n") || "(kosong)";
+            promptText = `🐳 <b>Docker Volumes</b> untuk <b>${escapeHtml(appName)}</b>\n\nSaat ini:\n<pre>${escapeHtml(volumes)}</pre>\nBalas dengan daftar volume mapping (baris/komma), contoh:\n<pre>/host/path:/app/data</pre>\nKetik <b>off</b> untuk kosongkan.`;
+        }
+        else if (action === "dockerargs") {
+            nextStep = "EDIT_DOCKER_ARGS";
+            const app = db.getApp(appName) || {};
+            const args = ((app.docker || {}).extraArgs || "").trim() || "(kosong)";
+            promptText = `🐳 <b>Docker Extra Args</b> untuk <b>${escapeHtml(appName)}</b>\n\nSaat ini:\n<pre>${escapeHtml(args)}</pre>\nBalas dengan argumen tambahan untuk <code>docker run</code>.\nKetik <b>off</b> untuk kosongkan.`;
+        }
         else if (action === "mutealert") {
             await answerCallback(ctx);
             const app = db.getApp(appName);
@@ -138,6 +203,32 @@ function register(bot, deps) {
         if (state.originalMessageId) {
             try { ctx.callbackQuery = { message: { message_id: state.originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { await renderPanel(ctx, {}, deps); }
         } else { await renderPanel(ctx, {}, deps); }
+    });
+
+    bot.action(/^panel:dockermode:(auto|on|off)$/, async (ctx) => {
+        const dockerMode = ctx.match[1].trim();
+        const chatId = getChatIdFromCtx(ctx);
+        const state = chatInputState.get(chatId) || {};
+        if (state.step !== "EDIT_DOCKER_MODE" || !state.data.name) { return answerCallback(ctx, "Sesi edit kadaluarsa"); }
+        const appName = state.data.name;
+        chatInputState.delete(chatId);
+        await db.upsertApp(appName, (existing) => ({
+            ...existing,
+            docker: {
+                ...(existing.docker || {}),
+                enabled: dockerMode
+            },
+            updatedAt: nowIso()
+        }));
+        try { await deployer.syncRuntimeProfile(appName); } catch { }
+        await answerCallback(ctx, "Docker mode diubah");
+        const output = `✅ Docker mode untuk <b>${escapeHtml(appName)}</b> diatur ke <code>${escapeHtml(dockerMode)}</code>.`;
+        setPanelState(chatId, { output, outputIsHtml: true }, db);
+        if (state.originalMessageId) {
+            try { ctx.callbackQuery = { message: { message_id: state.originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { await renderPanel(ctx, {}, deps); }
+        } else {
+            await renderPanel(ctx, {}, deps);
+        }
     });
 
     // Text input handler
@@ -202,6 +293,13 @@ function register(bot, deps) {
                     app.installCommand = "";
                     app.buildCommand = "";
                     app.startCommand = startCmd;
+                    if (fileName.endsWith(".py")) {
+                        app.python = {
+                            ...(app.python || {}),
+                            detected: true,
+                            entrypoint: fileName
+                        };
+                    }
 
                     await db.upsertApp(appName, app);
 
@@ -318,6 +416,86 @@ function register(bot, deps) {
                 processManager.updateCron(data.name, finalVal);
                 chatInputState.delete(chatId);
                 const output = `✅ Auto-Restart untuk <b>${escapeHtml(data.name)}</b> diatur ke <code>${escapeHtml(finalVal || "Mati")}</code>.`;
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            if (step === "EDIT_DOCKER_MODE") {
+                const val = text.trim().toLowerCase();
+                if (!["auto", "on", "off"].includes(val)) {
+                    await ctx.reply('Nilai tidak valid. Gunakan "auto", "on", atau "off".');
+                    return;
+                }
+                await db.upsertApp(data.name, (existing) => ({
+                    ...existing,
+                    docker: {
+                        ...(existing.docker || {}),
+                        enabled: val
+                    },
+                    updatedAt: nowIso()
+                }));
+                try { await deployer.syncRuntimeProfile(data.name); } catch { }
+                chatInputState.delete(chatId);
+                const output = `✅ Docker mode untuk <b>${escapeHtml(data.name)}</b> diatur ke <code>${escapeHtml(val)}</code>.`;
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            if (step === "EDIT_DOCKER_PORTS") {
+                const val = text.trim();
+                const ports = (val.toLowerCase() === "off" || val.toLowerCase() === "mati") ? [] : parseListInput(val);
+                await db.upsertApp(data.name, (existing) => ({
+                    ...existing,
+                    docker: {
+                        ...(existing.docker || {}),
+                        ports
+                    },
+                    updatedAt: nowIso()
+                }));
+                chatInputState.delete(chatId);
+                const output = `✅ Docker ports untuk <b>${escapeHtml(data.name)}</b> diupdate:\n<code>${escapeHtml(ports.join(", ") || "-")}</code>`;
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            if (step === "EDIT_DOCKER_VOLUMES") {
+                const val = text.trim();
+                const volumes = (val.toLowerCase() === "off" || val.toLowerCase() === "mati") ? [] : parseListInput(val);
+                await db.upsertApp(data.name, (existing) => ({
+                    ...existing,
+                    docker: {
+                        ...(existing.docker || {}),
+                        volumes
+                    },
+                    updatedAt: nowIso()
+                }));
+                chatInputState.delete(chatId);
+                const output = `✅ Docker volumes untuk <b>${escapeHtml(data.name)}</b> diupdate:\n<code>${escapeHtml(volumes.join(", ") || "-")}</code>`;
+                await ctx.reply(output, { parse_mode: "HTML" });
+                setPanelState(chatId, { output, outputIsHtml: true }, db);
+                if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }
+                return;
+            }
+
+            if (step === "EDIT_DOCKER_ARGS") {
+                const val = text.trim();
+                const args = (val.toLowerCase() === "off" || val.toLowerCase() === "mati") ? "" : val;
+                await db.upsertApp(data.name, (existing) => ({
+                    ...existing,
+                    docker: {
+                        ...(existing.docker || {}),
+                        extraArgs: args
+                    },
+                    updatedAt: nowIso()
+                }));
+                chatInputState.delete(chatId);
+                const output = `✅ Docker extra args untuk <b>${escapeHtml(data.name)}</b> diupdate:\n<code>${escapeHtml(args || "-")}</code>`;
                 await ctx.reply(output, { parse_mode: "HTML" });
                 setPanelState(chatId, { output, outputIsHtml: true }, db);
                 if (originalMessageId) { try { ctx.callbackQuery = { message: { message_id: originalMessageId } }; await renderPanel(ctx, {}, deps); } catch { } }

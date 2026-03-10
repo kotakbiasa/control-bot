@@ -4,7 +4,6 @@ const { renderPanel } = require("../panel/render");
 const { formatUptime } = require("../services/vpsInfo");
 const { buildVpsInfoText } = require("../services/vpsInfo");
 const { makeNewApp, showVarsMessage, showLogsMessage } = require("../services/appService");
-const { runShell } = require("../deployer");
 
 function buildEntryKeyboard(deps) {
     const rows = [[{ text: "Buka Panel", callback_data: "panel:home" }]];
@@ -117,11 +116,21 @@ function register(bot, deps) {
         const app = db.getApp(name);
         if (!app) { await ctx.reply(`App "${name}" tidak ditemukan.`); return; }
         const runtime = app.runtime || {};
+        const python = app.python || {};
+        const docker = app.docker || {};
         const text = [
             `nama: ${name}`, `status: ${runtime.status || "stopped"}`, `pid: ${runtime.pid || "-"}`,
+            `mode: ${runtime.mode || "auto"}`,
             `repo: ${app.repo}`, `branch: ${app.branch}`, `directory: ${app.directory}`,
             `install: ${app.installCommand || "-"}`, `build: ${app.buildCommand || "-"}`,
             `start: ${app.startCommand || "-"}`, `lastDeployAt: ${app.lastDeployAt || "-"}`,
+            `python.detected: ${python.detected ? "yes" : "no"}`,
+            `python.venvEnabled: ${python.venvEnabled === false ? "no" : "yes"}`,
+            `python.entrypoint: ${python.entrypoint || "-"}`,
+            `docker.detected: ${docker.detected ? "yes" : "no"}`,
+            `docker.enabled: ${docker.enabled || "auto"}`,
+            `docker.imageTag: ${docker.imageTag || "-"}`,
+            `docker.container: ${docker.containerName || "-"}`,
             `lastStartAt: ${runtime.lastStartAt || "-"}`, `lastStopAt: ${runtime.lastStopAt || "-"}`,
             `lastExitCode: ${runtime.lastExitCode ?? "-"}`
         ].join("\n");
@@ -240,12 +249,31 @@ function register(bot, deps) {
                 if (!app) { await ctx.reply(`App "${name}" tidak ditemukan.`); return; }
                 await ctx.reply(`Deploy "${name}" dimulai...`);
                 const summary = await deployer.deploy(name);
-                if (restartAfter) {
+                if (restartAfter && summary.mode !== "docker") {
                     const pid = await processManager.restart(name);
-                    await ctx.reply([`Deploy selesai dan app direstart.`, `PID baru: ${pid}`, "", `Repo: ${summary.repository}`].join("\n"));
+                    await ctx.reply([
+                        `Deploy selesai dan app direstart.`,
+                        `PID baru: ${pid}`,
+                        "",
+                        [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n")
+                    ].join("\n"));
                     return;
                 }
-                await ctx.reply([`Deploy "${name}" selesai.`, `Repo: ${summary.repository}`, "", "Jika app belum jalan, gunakan /start <nama>."].join("\n"));
+                if (summary.mode === "docker") {
+                    await ctx.reply([
+                        `Deploy "${name}" selesai.`,
+                        "Docker container di-recreate dan langsung dijalankan.",
+                        "",
+                        [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n")
+                    ].join("\n"));
+                } else {
+                    await ctx.reply([
+                        `Deploy "${name}" selesai.`,
+                        [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n"),
+                        "",
+                        "Jika app belum jalan, gunakan /start <nama>."
+                    ].join("\n"));
+                }
             });
         } catch (err) { await replyError(ctx, err); }
     });
@@ -260,16 +288,21 @@ function register(bot, deps) {
                 if (!app) { await ctx.reply(`App "${name}" tidak ditemukan.`); return; }
                 const runtime = app.runtime || {};
                 const wasRunning = runtime.status === "running" && runtime.pid;
+                const modeHint = runtime.mode || "auto";
                 await ctx.reply(`Update "${name}" dimulai...`);
-                if (wasRunning) { await processManager.stop(name); }
+                if (wasRunning && modeHint !== "docker") { await processManager.stop(name); }
                 const summary = await deployer.deploy(name, { updateOnly: true });
-                if (wasRunning) {
-                    const pid = await processManager.start(name);
-                    await ctx.reply(`Update selesai. App kembali jalan dengan PID ${pid}.`);
+                if (summary.mode === "docker") {
+                    await ctx.reply(`Update selesai. Docker container "${(db.getApp(name)?.docker || {}).containerName || name}" sudah di-recreate dan dijalankan.`);
                 } else {
-                    await ctx.reply(`Update selesai. App tidak direstart karena status awal tidak running.`);
+                    if (wasRunning) {
+                        const pid = await processManager.start(name);
+                        await ctx.reply(`Update selesai. App kembali jalan dengan PID ${pid}.`);
+                    } else {
+                        await ctx.reply(`Update selesai. App tidak direstart karena status awal tidak running.`);
+                    }
                 }
-                const log = [summary.repository, summary.install, summary.build].filter(Boolean).join("\n\n");
+                const log = [summary.repository, summary.python, summary.install, summary.build, summary.docker].filter(Boolean).join("\n\n");
                 await ctx.reply(clip(log, 3500));
             });
         } catch (err) { await replyError(ctx, err); }
@@ -323,18 +356,15 @@ function register(bot, deps) {
 
     bot.command("run", async (ctx) => {
         try {
-            const fs = require("fs");
             const args = parseCommandArgs(ctx);
             const [name, ...cmdParts] = args;
             if (!name || cmdParts.length === 0) { await ctx.reply("Format: /run <nama> <command...>"); return; }
             const app = db.getApp(name);
             if (!app) { await ctx.reply(`App "${name}" tidak ditemukan.`); return; }
-            if (!fs.existsSync(app.directory)) { await ctx.reply(`Folder app belum ada: ${app.directory}`); return; }
             const command = cmdParts.join(" ");
             await ctx.reply(`Menjalankan command di "${name}"...\n${command}`);
-            const result = await runShell(command, { cwd: app.directory });
-            const combined = [result.stdout, result.stderr].filter(Boolean).join("\n");
-            await ctx.reply(clip(combined || "(tidak ada output)", 3500));
+            const output = await processManager.runCommandInApp(name, command);
+            await ctx.reply(clip(output || "(tidak ada output)", 3500));
         } catch (err) { await replyError(ctx, err); }
     });
 

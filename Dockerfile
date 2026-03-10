@@ -4,7 +4,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git procps tzdata ca-certificates \
+    && apt-get install -y --no-install-recommends git procps tzdata ca-certificates python3 python3-venv python3-pip docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./

@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const { nowIso, escapeHtml, normalizeLines } = require("../utils");
 const { clip } = require("../panel/helpers");
+const {
+    defaultDockerImageTag,
+    defaultDockerContainerName
+} = require("./runtimeMode");
 
 function makeNewApp({ name, repo, branch }, deploymentsDir) {
     const now = nowIso();
@@ -15,12 +19,28 @@ function makeNewApp({ name, repo, branch }, deploymentsDir) {
         startCommand: "npm start",
         env: {},
         runtime: {
+            mode: "auto",
             status: "stopped",
             pid: null,
             lastStartAt: null,
             lastStopAt: null,
             lastExitCode: null,
             lastSignal: null
+        },
+        python: {
+            detected: false,
+            venvEnabled: true,
+            venvDir: ".venv",
+            entrypoint: null
+        },
+        docker: {
+            detected: false,
+            enabled: "auto",
+            imageTag: defaultDockerImageTag(name),
+            containerName: defaultDockerContainerName(name),
+            ports: [],
+            volumes: [],
+            extraArgs: ""
         },
         createdAt: now,
         updatedAt: now,
@@ -45,6 +65,13 @@ async function removeAppInternal(name, opts, deps) {
 
     if (isRunning && force) {
         await processManager.stop(name);
+    }
+
+    // Always try docker cleanup for docker-mode apps.
+    try {
+        await processManager.removeDockerResources(name);
+    } catch {
+        // Ignore cleanup failures here; DB removal should still proceed.
     }
 
     if (deleteFiles) {

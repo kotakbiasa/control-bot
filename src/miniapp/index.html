@@ -3,13 +3,17 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#10131a">
-    <title>Control Bot Mini App</title>
+    <meta name="theme-color" content="#f1e2cf">
+    <title>Operator Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/miniapp/styles.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="/miniapp/app.js"></script>
 </head>
 <body>
+    <div class="page-noise" aria-hidden="true"></div>
     <div class="ambient ambient-a"></div>
     <div class="ambient ambient-b"></div>
     <div class="ambient ambient-c"></div>
@@ -17,9 +21,9 @@
     <main class="shell">
         <header class="topbar surface">
             <div class="brand-block">
-                <p class="eyebrow">Telegram Mini App</p>
-                <h1>Deploy Console</h1>
-                <p class="subtitle">A compact control surface for apps, logs, and files inside Telegram.</p>
+                <p class="eyebrow">Telegram Control Surface</p>
+                <h1>Operator Studio</h1>
+                <p class="subtitle">A sharper cockpit for deploys, runtime tuning, logs, and files without leaving Telegram.</p>
             </div>
             <div class="topbar-actions">
                 <button id="userBadge" class="user-chip" type="button">Waiting for Telegram...</button>
@@ -29,7 +33,7 @@
 
         <section id="authNotice" class="notice-card surface hidden">
             <h2>Open this inside Telegram</h2>
-            <p>This Mini App requires Telegram WebApp auth data. Launch it from the bot button or menu button inside Telegram.</p>
+            <p>This Mini App needs Telegram WebApp auth data. Launch it from the bot menu or inline button inside Telegram.</p>
         </section>
 
         <section id="userHub" class="user-hub surface mobile-only">
@@ -62,7 +66,7 @@
 
         <section class="system-strip" aria-label="System summary">
             <article class="metric-card metric-card-apps surface">
-                <span class="metric-label">Apps</span>
+                <span class="metric-label">Fleet</span>
                 <strong id="totalApps">0</strong>
                 <small id="pinnedApps">0 pinned</small>
             </article>
@@ -87,8 +91,8 @@
             <section id="appsPanel" class="apps-panel panel-screen surface">
                 <div class="panel-head">
                     <div>
-                        <p class="eyebrow">Navigator</p>
-                        <h2>Apps</h2>
+                        <p class="eyebrow">Fleet</p>
+                        <h2>Application Radar</h2>
                     </div>
                     <span id="appCountPill" class="count-badge">0</span>
                 </div>
@@ -104,7 +108,7 @@
                     <button class="filter-chip" data-filter="pinned" type="button">Pinned</button>
                 </div>
 
-                <p id="emptySelectionNotice" class="helper-note mobile-only hidden">Select an app first to open Overview, Logs, or Files.</p>
+                <p id="emptySelectionNotice" class="helper-note mobile-only hidden">Select an app first to open Overview, Settings, Logs, or Files.</p>
 
                 <div id="appList" class="app-list"></div>
             </section>
@@ -115,7 +119,7 @@
                         <div class="selected-identity">
                             <p class="eyebrow">Selected App</p>
                             <h2 id="appTitle">Select an app</h2>
-                            <p id="appSubtitle" class="app-subtitle">Choose an app from the list to inspect its state.</p>
+                            <p id="appSubtitle" class="app-subtitle">Choose an app from the radar to inspect its runtime and configuration.</p>
                         </div>
                         <div class="selected-actions">
                             <span id="appStatusBadge" class="status-badge idle">Idle</span>
@@ -130,6 +134,7 @@
 
                 <nav class="detail-tabs surface" aria-label="Detail tabs">
                     <button class="content-tab active" data-view-target="overview" type="button">Overview</button>
+                    <button class="content-tab" data-view-target="settings" type="button">Settings</button>
                     <button class="content-tab" data-view-target="logs" type="button">Logs</button>
                     <button class="content-tab" data-view-target="files" type="button">Files</button>
                 </nav>
@@ -138,39 +143,170 @@
                     <div class="panel-head">
                         <div>
                             <p class="eyebrow">Overview</p>
-                            <h3>Runtime and deployment details</h3>
+                            <h3>Runtime posture and action center</h3>
                         </div>
                     </div>
 
-                    <div id="appMeta" class="info-grid"></div>
+                    <div class="overview-grid">
+                        <div class="overview-main">
+                            <div id="appMeta" class="info-grid signal-grid"></div>
 
-                    <div class="action-stack">
-                        <section class="action-card">
-                            <div class="group-head">
-                                <span class="group-kicker">Runtime</span>
-                                <h4>Lifecycle</h4>
-                            </div>
-                            <div id="runtimeActions" class="action-grid"></div>
-                        </section>
+                            <section class="action-card">
+                                <div class="group-head">
+                                    <span class="group-kicker">Runtime</span>
+                                    <h4>Lifecycle</h4>
+                                </div>
+                                <div id="runtimeActions" class="action-grid"></div>
+                            </section>
 
-                        <section class="action-card">
-                            <div class="group-head">
-                                <span class="group-kicker">Delivery</span>
-                                <h4>Deployments</h4>
-                            </div>
-                            <div id="deployActions" class="action-grid"></div>
-                        </section>
+                            <section class="action-card">
+                                <div class="group-head">
+                                    <span class="group-kicker">Delivery</span>
+                                    <h4>Deployments</h4>
+                                </div>
+                                <div id="deployActions" class="action-grid two-up"></div>
+                            </section>
 
-                        <section class="action-card danger-card">
-                            <div class="group-head">
-                                <span class="group-kicker">Danger Zone</span>
-                                <h4>Destructive action</h4>
-                            </div>
-                            <div id="dangerActions" class="action-grid single"></div>
-                        </section>
+                            <section class="action-card danger-card">
+                                <div class="group-head">
+                                    <span class="group-kicker">Danger Zone</span>
+                                    <h4>Destructive action</h4>
+                                </div>
+                                <div id="dangerActions" class="action-grid single"></div>
+                            </section>
+                        </div>
+
+                        <div class="overview-side">
+                            <section class="insight-card">
+                                <div class="group-head">
+                                    <span class="group-kicker">Signal</span>
+                                    <h4>Runtime Snapshot</h4>
+                                </div>
+                                <div id="overviewInsights" class="spotlight-grid"></div>
+                            </section>
+
+                            <section class="insight-card">
+                                <div class="group-head">
+                                    <span class="group-kicker">Profile</span>
+                                    <h4>Current Runtime Profile</h4>
+                                </div>
+                                <div id="runtimeProfileList" class="profile-list"></div>
+                            </section>
+
+                            <section class="insight-card activity-card">
+                                <div class="group-head">
+                                    <span class="group-kicker">Activity</span>
+                                    <h4>Last Action Output</h4>
+                                </div>
+                                <pre id="actionOutput" class="terminal-box empty">No action has been run yet.</pre>
+                            </section>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="settingsPanel" class="detail-panel panel-screen surface">
+                    <div class="panel-head">
+                        <div>
+                            <p class="eyebrow">Settings</p>
+                            <h3>Inline runtime configuration</h3>
+                        </div>
                     </div>
 
-                    <pre id="actionOutput" class="terminal-box empty">No action has been run yet.</pre>
+                    <div id="settingsStatusRail" class="settings-status-rail"></div>
+
+                    <div class="settings-layout">
+                        <section class="settings-card">
+                            <div class="group-head">
+                                <span class="group-kicker">Commands</span>
+                                <h4>Process Commands</h4>
+                            </div>
+                            <form id="commandForm" class="settings-form">
+                                <label class="field-shell">
+                                    <span class="field-label">Install Command</span>
+                                    <input id="commandInstallInput" type="text" autocomplete="off" placeholder="npm install">
+                                </label>
+                                <label class="field-shell">
+                                    <span class="field-label">Build Command</span>
+                                    <input id="commandBuildInput" type="text" autocomplete="off" placeholder="npm run build">
+                                </label>
+                                <label class="field-shell">
+                                    <span class="field-label">Start Command</span>
+                                    <input id="commandStartInput" type="text" autocomplete="off" placeholder="npm start">
+                                </label>
+                                <div class="form-actions">
+                                    <button class="action-btn primary" type="submit">Save Commands</button>
+                                    <button id="resetCommandsBtn" class="ghost-btn" type="button">Reset</button>
+                                </div>
+                            </form>
+                        </section>
+
+                        <section class="settings-card">
+                            <div class="group-head">
+                                <span class="group-kicker">Python</span>
+                                <h4>Virtual Environment</h4>
+                            </div>
+                            <div id="pythonStateCard" class="runtime-pill-row"></div>
+                            <div class="form-actions tight-actions">
+                                <button id="togglePythonBtn" class="action-btn" type="button">Toggle Python Venv</button>
+                                <button id="rebuildPythonBtn" class="ghost-btn" type="button">Rebuild Venv</button>
+                            </div>
+                        </section>
+
+                        <section class="settings-card">
+                            <div class="group-head">
+                                <span class="group-kicker">Docker</span>
+                                <h4>Container Runtime</h4>
+                            </div>
+                            <form id="dockerForm" class="settings-form">
+                                <div>
+                                    <span class="field-label">Docker Mode</span>
+                                    <div id="dockerModeSwitch" class="segmented-control" role="tablist" aria-label="Docker mode">
+                                        <button class="segment-btn" data-docker-mode="auto" type="button">Auto</button>
+                                        <button class="segment-btn" data-docker-mode="on" type="button">On</button>
+                                        <button class="segment-btn" data-docker-mode="off" type="button">Off</button>
+                                    </div>
+                                    <input id="dockerModeInput" type="hidden" value="auto">
+                                </div>
+                                <label class="field-shell">
+                                    <span class="field-label">Ports</span>
+                                    <textarea id="dockerPortsInput" rows="4" placeholder="3000:3000 or one mapping per line"></textarea>
+                                </label>
+                                <label class="field-shell">
+                                    <span class="field-label">Volumes</span>
+                                    <textarea id="dockerVolumesInput" rows="4" placeholder="/host/path:/container/path"></textarea>
+                                </label>
+                                <label class="field-shell">
+                                    <span class="field-label">Extra Args</span>
+                                    <input id="dockerArgsInput" type="text" autocomplete="off" placeholder="--cpus=1 --memory=512m">
+                                </label>
+                                <div class="form-actions">
+                                    <button class="action-btn primary" type="submit">Apply Docker Settings</button>
+                                    <button id="resetDockerBtn" class="ghost-btn" type="button">Reset</button>
+                                </div>
+                            </form>
+                        </section>
+
+                        <section class="settings-card env-settings-card">
+                            <div class="group-head">
+                                <span class="group-kicker">Environment</span>
+                                <h4>Variables</h4>
+                            </div>
+                            <form id="envForm" class="settings-form">
+                                <label class="field-shell">
+                                    <span class="field-label">Key</span>
+                                    <input id="envKeyInput" type="text" autocomplete="off" placeholder="API_KEY">
+                                </label>
+                                <label class="field-shell">
+                                    <span class="field-label">Value</span>
+                                    <textarea id="envValueInput" rows="4" placeholder="Paste the environment value here"></textarea>
+                                </label>
+                                <div class="form-actions">
+                                    <button class="action-btn primary" type="submit">Add or Update Env</button>
+                                </div>
+                            </form>
+                            <div id="envVarList" class="env-list"></div>
+                        </section>
+                    </div>
                 </section>
 
                 <section id="logsPanel" class="detail-panel panel-screen surface">
@@ -258,7 +394,6 @@
                 <div id="vpsCards" class="aux-grid"></div>
                 <div id="vpsInfoGrid" class="info-grid compact-grid"></div>
             </section>
-
         </section>
     </main>
 

@@ -39,7 +39,7 @@ const settings = db.getSettings();
 if (settings.timezone) { process.env.TZ = settings.timezone; }
 
 const processManager = new ProcessManager({ db, logsDir: LOGS_DIR });
-const deployer = new Deployer({ db, deploymentsDir: DEPLOYMENTS_DIR });
+const deployer = new Deployer({ db, deploymentsDir: DEPLOYMENTS_DIR, processManager });
 const bot = new Telegraf(BOT_TOKEN);
 const busyApps = new Set();
 const chatInputState = new Map();

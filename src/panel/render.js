@@ -61,6 +61,8 @@ function panelText(state, deps) {
         );
     } else if (view === "settings" && selectedApp) {
         const runtime = selectedApp.runtime || {};
+        const python = selectedApp.python || {};
+        const docker = selectedApp.docker || {};
         let statusStr = runtime.status || "stopped";
         if (statusStr === "running" && runtime.lastStartAt) {
             const elapsedSeconds = Math.floor((Date.now() - new Date(runtime.lastStartAt).getTime()) / 1000);
@@ -73,9 +75,17 @@ function panelText(state, deps) {
             "",
             "<b>Konfigurasi Aktif:</b>",
             "<blockquote>",
+            `<b>runtime mode:</b> <code>${escapeHtml(runtime.mode || "auto")}</code>`,
             `<b>cmd install:</b> <pre>${escapeHtml(selectedApp.installCommand || "npm install")}</pre>`,
             `<b>cmd build:</b> <pre>${escapeHtml(selectedApp.buildCommand || "-")}</pre>`,
             `<b>cmd start:</b> <pre>${escapeHtml(selectedApp.startCommand || "npm start")}</pre>`,
+            `<b>Python:</b> ${python.detected ? "detected" : "not detected"} | venv ${python.venvEnabled === false ? "off" : "on"} | entrypoint ${escapeHtml(python.entrypoint || "-")}`,
+            `<b>Docker:</b> ${docker.detected ? "detected" : "not detected"} | mode ${escapeHtml(docker.enabled || "auto")}`,
+            `<b>Docker image:</b> <code>${escapeHtml(docker.imageTag || "-")}</code>`,
+            `<b>Docker container:</b> <code>${escapeHtml(docker.containerName || "-")}</code>`,
+            `<b>Docker ports:</b> <code>${escapeHtml((docker.ports || []).join(", ") || "-")}</code>`,
+            `<b>Docker volumes:</b> <code>${escapeHtml((docker.volumes || []).join(", ") || "-")}</code>`,
+            `<b>Docker extra args:</b> <code>${escapeHtml(docker.extraArgs || "-")}</code>`,
             `<b>Auto-Restart:</b> <code>${escapeHtml(selectedApp.cronSchedule || "Mati")}</code>`,
             `<b>Webhook:</b> ${selectedApp.webhookSecret ? "✅ Aktif" : "🔴 Mati"}`,
             `<b>Scheduled Cmd:</b> ${(selectedApp.scheduledCommands || []).length}`,
@@ -347,6 +357,20 @@ function panelKeyboard(state, deps) {
             { text: "🛠 Cmd Install", callback_data: "panel:edit:cmd:install" },
             { text: "🛠 Cmd Build", callback_data: "panel:edit:cmd:build" },
             { text: "🛠 Cmd Start", callback_data: "panel:edit:cmd:start" }
+        ]);
+        rows.push([
+            { text: apps[synced.selectedApp]?.python?.venvEnabled === false ? "🐍 Python Venv: OFF" : "🐍 Python Venv: ON", callback_data: "panel:edit:pythonvenv" },
+            { text: "🔧 Rebuild Python Venv", callback_data: "panel:edit:pythonrebuild" }
+        ]);
+        rows.push([
+            { text: `🐳 Docker Mode: ${(apps[synced.selectedApp]?.docker?.enabled || "auto").toUpperCase()}`, callback_data: "panel:edit:dockermode" }
+        ]);
+        rows.push([
+            { text: "🐳 Docker Ports", callback_data: "panel:edit:dockerports" },
+            { text: "🐳 Docker Volumes", callback_data: "panel:edit:dockervolumes" }
+        ]);
+        rows.push([
+            { text: "🐳 Docker Extra Args", callback_data: "panel:edit:dockerargs" }
         ]);
         rows.push([
             { text: "🔑 Set Env Var", callback_data: "panel:edit:setvar" },

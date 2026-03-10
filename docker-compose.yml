@@ -13,5 +13,6 @@ services:
       - ./data:/app/data
       - ./deployments:/app/deployments
       - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "9876:9876"
